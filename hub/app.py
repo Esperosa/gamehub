@@ -7,6 +7,9 @@ from PySide6.QtWidgets import QApplication
 
 from hub.main_window import MainWindow
 from hub.theme import apply_theme
+# Keep print module in static import graph so one-file PyInstaller build
+# includes it even though game UIs are loaded dynamically from plugins.
+from hub import printing as _printing  # noqa: F401
 
 
 def main() -> None:

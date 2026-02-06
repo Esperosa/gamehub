@@ -208,7 +208,7 @@ requirements.txt
 
 ```bash
 .venv\Scripts\python -m pip install pyinstaller
-.venv\Scripts\python -m PyInstaller --noconfirm --clean --onefile --windowed --name GameHub --icon hub\assets\brainhub.ico --add-data "games;games" --add-data "hub\assets;hub\assets" --hidden-import winsound --hidden-import numpy --hidden-import numba --hidden-import llvmlite --hidden-import pysat.solvers --hidden-import pysat.card run.py
+.venv\Scripts\python -m PyInstaller --noconfirm --clean --onefile --windowed --name GameHub --icon hub\assets\brainhub.ico --add-data "games;games" --add-data "hub\assets;hub\assets" --hidden-import winsound --hidden-import numpy --hidden-import numba --hidden-import llvmlite --hidden-import pysat.solvers --hidden-import pysat.card --hidden-import hub.printing run.py
 ```
 
 Výstup:
