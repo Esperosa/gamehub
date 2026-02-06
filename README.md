@@ -16,6 +16,7 @@ Desktop aplikace v Pythonu (PySide6), která sdružuje více logických her do j
   - `slitherlink`
   - `sudoku`
 - Moderní UI + animované pozadí
+- Tisk/PDF generátor pro `sudoku`, `kenken`, `slitherlink`
 - Build do `.exe` pro Windows
 
 ## Rychlý start
@@ -26,6 +27,24 @@ python -m venv .venv
 pip install -r requirements.txt
 python run.py
 ```
+
+## Tisk a PDF (Sudoku, KenKen, Slitherlink)
+
+V hrách `sudoku`, `kenken` a `slitherlink` je tlačítko `Tisk/PDF` pro dávkové generování tisknutelných úloh.
+
+- Co umí:
+  - Vygenerovat více úloh najednou podle zvolených variant (velikost/obtížnost).
+  - Export do `PDF` nebo přímý tisk na tiskárnu.
+  - Rozložení `1 / 2 / 4 / 6 / 9` úloh na stránku.
+  - Černobílý A4 výstup se silným černým rámem puzzle.
+- Výchozí nastavení dialogu:
+  - Počty variant jsou `0` (uživatel vyplní přesně co chce).
+  - Výstup je defaultně `PDF`.
+  - Cesta pro PDF je defaultně složka `Downloads`.
+- Vzhled tisku:
+  - Sudoku: čistá mřížka + zadané hodnoty.
+  - KenKen: zvýrazněné klece a výraznější linky klecí.
+  - Slitherlink: výrazné tečky vrcholů + číselné indicie.
 
 ## Jak hry fungují
 
@@ -53,9 +72,10 @@ Níže je praktický přehled pravidel, ovládání a interní logiky (AI/solver
   - `1..9` zadání hodnoty, `Delete/Backspace/0` smazání.
   - `Šipky` pohyb po buňkách.
   - Kolečko myši cykluje hodnoty.
-  - Tlačítka velikosti `4x4..9x9`, `Nápověda`, `Nová hra`.
+  - Tlačítka velikosti `4x4..9x9`, `Nápověda`, `Nová hra`, `Tisk/PDF`.
 - Funkce:
   - Generace puzzle na pozadí, validace, hint systém.
+  - Dávkový černobílý tisk/PDF s layoutem na A4.
 - Agent/AI:
   - Constraint solver s MRV heuristikou + propagace omezení.
   - Unikátnost řešení se ověřuje při generaci.
@@ -143,10 +163,11 @@ Níže je praktický přehled pravidel, ovládání a interní logiky (AI/solver
   - Nakreslit jednu uzavřenou smyčku podle číselných indicií.
 - Ovládání:
   - Klik na hranu cykluje stav: `prázdná -> čára -> X -> prázdná`.
-  - Tlačítka velikosti (`7x7`, `10x10`, `15x15`), obtížnosti, `Nápověda`, `Vyřešit`, `Vymazat`, `Nová hra`.
+  - Tlačítka velikosti (`7x7`, `10x10`, `15x15`), obtížnosti, `Nápověda`, `Vyřešit`, `Vymazat`, `Nová hra`, `Tisk/PDF`.
 - Funkce:
   - Načítání/generace puzzle na pozadí.
   - Auto-solve animace.
+  - Tisk/PDF s výraznými tečkami vrcholů a čitelnými indiciemi.
 - Agent/AI:
   - Hinty přes constraint propagation.
   - Plný solver přes SAT (`python-sat`) s kontrolou validní jediné smyčky.
@@ -160,9 +181,10 @@ Níže je praktický přehled pravidel, ovládání a interní logiky (AI/solver
   - `1..9` zadání, `Delete/Backspace/0` smazání.
   - `Šipky` navigace.
   - Kolečko myši cykluje hodnoty.
-  - Velikost (`3x3`, `6x6`, `9x9`), obtížnost, `Nápověda`, `Nová hra`.
+  - Velikost (`3x3`, `6x6`, `9x9`), obtížnost, `Nápověda`, `Nová hra`, `Tisk/PDF`.
 - Funkce:
   - Highlight konfliktů, průběh, konfety při dokončení.
+  - Tisk/PDF čisté sudoku mřížky (černobílý A4 export).
 - Agent/AI:
   - Backtracking solver s MRV heuristikou.
   - Generátor vytváří puzzle s ověřenou jednoznačností řešení.
