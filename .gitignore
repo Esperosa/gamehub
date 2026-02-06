@@ -1,0 +1,27 @@
+# Virtual environments
+.venv/
+.build_venv/
+
+# Build outputs
+build/
+dist/
+*.spec
+*.exe
+*.pkg
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Runtime/generated files
+games/.last_runs.json
+games/.settings.json
+nuitka-crash-report.xml
+test_result.txt
+test2.txt
+
+# Editor/OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
