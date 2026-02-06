@@ -22,8 +22,10 @@ from PySide6.QtGui import (
     QColor, QPainter, QPen, QFont, QBrush, QLinearGradient, QPainterPath
 )
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QApplication
+    QApplication, QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QMessageBox, QProgressDialog
 )
+from hub.printing import BatchPrintDialog, VariantOption, create_output_printer, draw_square_batch
 
 # Import engine
 try:
@@ -56,6 +58,71 @@ COLOR_CLUE_SATISFIED = QColor(100, 255, 150, 220)  # Green - satisfied clue
 COLOR_CLUE_ERROR = QColor(255, 100, 100, 220)  # Red - error clue
 COLOR_HINT = QColor(255, 200, 87)          # Yellow - hint
 COLOR_GRID = QColor(255, 255, 255, 30)     # Subtle grid
+SLITHERLINK_DIFF_LABELS = {"easy": "Lehká", "medium": "Střední", "hard": "Těžká"}
+
+
+def _draw_print_slitherlink(
+    painter: QPainter,
+    tile_rect: QRectF,
+    item: Tuple[SlitherlinkState, str],
+    _: int,
+) -> None:
+    state, _label = item
+    puzzle = state.puzzle
+
+    painter.save()
+
+    device = painter.device()
+    dpi = max(96.0, float(device.logicalDpiX() if device is not None else 300.0))
+
+    def mm(mm_value: float) -> float:
+        return (mm_value / 25.4) * dpi
+
+    painter.fillRect(tile_rect, Qt.white)
+
+    pad = max(mm(1.0), tile_rect.width() * 0.015)
+    board_rect = tile_rect.adjusted(pad, pad, -pad, -pad)
+    board_side = board_rect.width()
+    board_left = board_rect.left()
+    board_top = board_rect.top()
+
+    n = max(puzzle.width, puzzle.height)
+    cell = board_side / float(max(1, n))
+    grid_w = puzzle.width * cell
+    grid_h = puzzle.height * cell
+    grid_left = board_left + (board_side - grid_w) / 2.0
+    grid_top = board_top + (board_side - grid_h) / 2.0
+    grid_rect = QRectF(grid_left, grid_top, grid_w, grid_h)
+
+    border_w = max(mm(0.95), board_side * 0.0070)
+    dot_r = max(mm(1.10), cell * 0.16)
+
+    painter.setPen(QPen(Qt.black, border_w))
+    painter.drawRect(grid_rect)
+
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(Qt.black)
+    for r in range(puzzle.height + 1):
+        for c in range(puzzle.width + 1):
+            x = grid_left + c * cell
+            y = grid_top + r * cell
+            painter.drawEllipse(QPointF(x, y), dot_r, dot_r)
+
+    clue_px = int(max(mm(2.0), min(cell * 0.62, cell - mm(0.7))))
+    clue_font = QFont("Arial")
+    clue_font.setBold(True)
+    clue_font.setPixelSize(max(7, clue_px))
+    painter.setFont(clue_font)
+    painter.setPen(Qt.black)
+    for r in range(puzzle.height):
+        for c in range(puzzle.width):
+            clue = puzzle.clues[r][c]
+            if clue is None:
+                continue
+            rect = QRectF(grid_left + c * cell, grid_top + r * cell, cell, cell)
+            painter.drawText(rect, Qt.AlignCenter, str(clue))
+
+    painter.restore()
 
 
 class PuzzleLoaderWorker(QObject):
@@ -718,6 +785,7 @@ class SlitherlinkWidget(QWidget):
         
         self._current_size = 10
         self._current_difficulty = "medium"
+        self._loading_puzzle = False
         
         self._setup_ui()
         self._load_puzzle()
@@ -797,6 +865,11 @@ class SlitherlinkWidget(QWidget):
         self._clear_btn.setStyleSheet(self._action_button_style(secondary=True))
         self._clear_btn.clicked.connect(self._clear_board)
         footer.addWidget(self._clear_btn)
+
+        self._print_btn = QPushButton("Tisk/PDF")
+        self._print_btn.setStyleSheet(self._action_button_style(secondary=True))
+        self._print_btn.clicked.connect(self._on_print)
+        footer.addWidget(self._print_btn)
         
         footer.addStretch()
         
@@ -886,8 +959,10 @@ class SlitherlinkWidget(QWidget):
         self._load_puzzle()
     
     def _load_puzzle(self):
+        self._loading_puzzle = True
         self._board.set_loading(True, self._current_size)
         self._status.setText("Načítání...")
+        self._print_btn.setEnabled(False)
         
         # Load in background
         self._loader_thread = QThread()
@@ -901,7 +976,9 @@ class SlitherlinkWidget(QWidget):
         self._loader_thread.start()
     
     def _on_puzzle_loaded(self, state: Optional[SlitherlinkState]):
+        self._loading_puzzle = False
         self._board.set_loading(False)
+        self._print_btn.setEnabled(True)
         
         if state:
             self._board.set_state(state)
@@ -910,6 +987,90 @@ class SlitherlinkWidget(QWidget):
         else:
             self._board.set_no_templates(self._current_size)
             self._status.setText("Žádné šablony k dispozici")
+
+    def _on_print(self):
+        if self._loading_puzzle:
+            QMessageBox.information(self, "Slitherlink", "Počkej na dokončení načítání aktuální hry.")
+            return
+
+        variants: List[VariantOption] = []
+        for size in (7, 10, 15):
+            for diff in ("easy", "medium", "hard"):
+                variants.append(
+                    VariantOption(
+                        key=f"{size}:{diff}",
+                        label=f"{size}×{size} · {SLITHERLINK_DIFF_LABELS[diff]}",
+                    )
+                )
+
+        dlg = BatchPrintDialog(
+            "Slitherlink tisk",
+            variants,
+            default_variant_key=f"{self._current_size}:{self._current_difficulty}",
+            parent=self,
+        )
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        requests = dlg.selected_requests()
+        total = sum(count for _, count in requests)
+        items: List[Tuple[SlitherlinkState, str]] = []
+        failures = 0
+
+        progress = QProgressDialog("Generuji Slitherlink pro tisk...", "Zrušit", 0, total, self)
+        progress.setWindowTitle("Slitherlink")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        generated = 0
+        for variant, count in requests:
+            size_s, diff = variant.key.split(":")
+            size = int(size_s)
+            for _ in range(count):
+                if progress.wasCanceled():
+                    return
+                state: Optional[SlitherlinkState] = None
+                for _attempt in range(3):
+                    state = create_puzzle(size, diff)
+                    if state is not None:
+                        break
+                if state is not None:
+                    items.append((state, variant.label))
+                else:
+                    failures += 1
+                generated += 1
+                progress.setValue(generated)
+                QApplication.processEvents()
+        progress.setValue(total)
+
+        if not items:
+            QMessageBox.warning(self, "Slitherlink", "Nepodařilo se vygenerovat žádnou úlohu pro tisk.")
+            return
+
+        printer, pdf_path = create_output_printer(
+            self,
+            "BrainHub Slitherlink",
+            dlg.output_mode(),
+            dlg.pdf_path(),
+        )
+        if printer is None:
+            return
+
+        try:
+            draw_square_batch(printer, items, dlg.puzzles_per_page(), _draw_print_slitherlink)
+        except Exception as exc:
+            QMessageBox.critical(self, "Slitherlink", f"Tisk se nepodařil:\n{exc}")
+            return
+
+        if pdf_path:
+            QMessageBox.information(self, "Slitherlink", f"PDF vytvořeno:\n{pdf_path}")
+
+        if failures:
+            QMessageBox.warning(
+                self,
+                "Slitherlink",
+                f"{failures} úloh se nepodařilo vygenerovat a nebyly zahrnuty do výstupu.",
+            )
     
     def _auto_solve(self):
         """Automatically solve the puzzle step by step with animation using stored solution."""

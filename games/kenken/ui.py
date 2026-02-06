@@ -24,8 +24,10 @@ from PySide6.QtGui import (
     QColor, QPainter, QPen, QFont, QBrush, QLinearGradient, QPainterPath
 )
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
+    QApplication, QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QMessageBox, QProgressDialog
 )
+from hub.printing import BatchPrintDialog, VariantOption, create_output_printer, draw_square_batch
 
 # Import engine - works both as package and standalone
 try:
@@ -54,6 +56,103 @@ COLOR_HINT = QColor(255, 200, 87)          # Yellow - hint
 COLOR_CAGE_LINE = QColor(255, 255, 255, 180)
 COLOR_GRID_LINE = QColor(255, 255, 255, 25)
 COLOR_CAGE_TARGET = QColor(255, 255, 255, 200)
+
+
+def _cage_edges_for_print(cage: Cage) -> Set[Tuple[Tuple[int, int], str]]:
+    cells_set = set(cage.cells)
+    edges: Set[Tuple[Tuple[int, int], str]] = set()
+
+    for r, c in cage.cells:
+        if (r - 1, c) not in cells_set:
+            edges.add(((r, c), "top"))
+        if (r + 1, c) not in cells_set:
+            edges.add(((r, c), "bottom"))
+        if (r, c - 1) not in cells_set:
+            edges.add(((r, c), "left"))
+        if (r, c + 1) not in cells_set:
+            edges.add(((r, c), "right"))
+
+    return edges
+
+
+def _cage_top_left_for_print(cage: Cage) -> Tuple[int, int]:
+    min_row = min(r for r, _ in cage.cells)
+    top_row_cells = [(r, c) for r, c in cage.cells if r == min_row]
+    min_col = min(c for _, c in top_row_cells)
+    return min_row, min_col
+
+
+def _draw_print_kenken(
+    painter: QPainter,
+    tile_rect: QRectF,
+    item: Tuple[KenKenState, str],
+    _: int,
+) -> None:
+    state, _label = item
+    painter.save()
+
+    device = painter.device()
+    dpi = max(96.0, float(device.logicalDpiX() if device is not None else 300.0))
+
+    def mm(mm_value: float) -> float:
+        return (mm_value / 25.4) * dpi
+
+    painter.fillRect(tile_rect, Qt.white)
+
+    pad = max(mm(1.0), tile_rect.width() * 0.015)
+    board_rect = tile_rect.adjusted(pad, pad, -pad, -pad)
+
+    n = state.size
+    board_side = board_rect.width()
+    board_left = board_rect.left()
+    board_top = board_rect.top()
+    cell = board_side / float(n)
+
+    board_border = max(mm(0.95), board_side * 0.0070)
+    thin_w = max(mm(0.34), board_side * 0.0030)
+    cage_w = max(mm(0.95), board_side * 0.0080)
+
+    painter.setPen(QPen(Qt.black, board_border))
+    painter.drawRect(board_rect)
+
+    painter.setPen(QPen(Qt.black, thin_w))
+    for i in range(1, n):
+        x = board_left + i * cell
+        y = board_top + i * cell
+        painter.drawLine(QPointF(x, board_top), QPointF(x, board_top + board_side))
+        painter.drawLine(QPointF(board_left, y), QPointF(board_left + board_side, y))
+
+    painter.setPen(QPen(Qt.black, cage_w))
+    for cage in state.cages:
+        for (r, c), direction in _cage_edges_for_print(cage):
+            x = board_left + c * cell
+            y = board_top + r * cell
+            if direction == "top":
+                painter.drawLine(QPointF(x, y), QPointF(x + cell, y))
+            elif direction == "bottom":
+                painter.drawLine(QPointF(x, y + cell), QPointF(x + cell, y + cell))
+            elif direction == "left":
+                painter.drawLine(QPointF(x, y), QPointF(x, y + cell))
+            elif direction == "right":
+                painter.drawLine(QPointF(x + cell, y), QPointF(x + cell, y + cell))
+
+    op_symbols = {"+": "+", "-": "−", "*": "×", "/": "÷", "": ""}
+    target_px = int(max(mm(1.8), min(cell * 0.34, cell * 0.52)))
+    target_font = QFont("Arial")
+    target_font.setBold(True)
+    target_font.setPixelSize(max(7, target_px))
+    painter.setFont(target_font)
+    painter.setPen(Qt.black)
+    metrics = painter.fontMetrics()
+    for cage in state.cages:
+        tr, tc = _cage_top_left_for_print(cage)
+        op = op_symbols.get(cage.operation, cage.operation)
+        text = f"{cage.target}{op}"
+        x = board_left + tc * cell + max(mm(0.35), cell * 0.06)
+        y = board_top + tr * cell + max(mm(0.20), cell * 0.04) + metrics.ascent()
+        painter.drawText(QPointF(x, y), text)
+
+    painter.restore()
 
 
 class PuzzleGeneratorWorker(QObject):
@@ -822,6 +921,24 @@ class KenKenWidget(QWidget):
         """)
         self.btn_new.clicked.connect(self.new_game)
         row.addWidget(self.btn_new)
+
+        # Print/PDF button
+        self.btn_print = QPushButton("🖨 Tisk/PDF")
+        self.btn_print.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.20);
+                border-radius: 6px;
+                color: rgba(255, 255, 255, 0.92);
+                font-size: 12px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.14);
+            }
+        """)
+        self.btn_print.clicked.connect(self._on_print)
+        row.addWidget(self.btn_print)
         
         # Info row
         info = QHBoxLayout()
@@ -925,6 +1042,7 @@ class KenKenWidget(QWidget):
         # Disable buttons during generation
         self.btn_new.setEnabled(False)
         self.btn_hint.setEnabled(False)
+        self.btn_print.setEnabled(False)
         
         # Create worker and thread
         self._gen_thread = QThread()
@@ -948,6 +1066,7 @@ class KenKenWidget(QWidget):
             self.board.set_loading(False)
             self.btn_new.setEnabled(True)
             self.btn_hint.setEnabled(False)
+            self.btn_print.setEnabled(True)
             self.lbl_status.setText(f"❌ Chyba generování")
             self.lbl_progress.setText("Zkuste znovu")
             return
@@ -959,6 +1078,7 @@ class KenKenWidget(QWidget):
         # Re-enable buttons
         self.btn_new.setEnabled(True)
         self.btn_hint.setEnabled(True)
+        self.btn_print.setEnabled(True)
         
         filled = state.count_filled()
         total = self.size * self.size
@@ -975,6 +1095,79 @@ class KenKenWidget(QWidget):
         self.board.show_hint()
         self.hints_used += 1
         self._update_progress()
+
+    def _on_print(self) -> None:
+        if self._generating:
+            QMessageBox.information(self, "KenKen", "Počkej na dokončení generování aktuální hry.")
+            return
+
+        variants = [VariantOption(key=str(size), label=f"{size}×{size}") for size in range(4, 10)]
+        dlg = BatchPrintDialog(
+            "KenKen tisk",
+            variants,
+            default_variant_key=str(self.size),
+            parent=self,
+        )
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        requests = dlg.selected_requests()
+        total = sum(count for _, count in requests)
+        items: List[Tuple[KenKenState, str]] = []
+        failures = 0
+
+        progress = QProgressDialog("Generuji KenKen pro tisk...", "Zrušit", 0, total, self)
+        progress.setWindowTitle("KenKen")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        generated = 0
+        for variant, count in requests:
+            size = int(variant.key)
+            for _ in range(count):
+                if progress.wasCanceled():
+                    return
+                try:
+                    state = create_puzzle(size)
+                except Exception:
+                    state = None
+                if state is not None:
+                    items.append((state, variant.label))
+                else:
+                    failures += 1
+                generated += 1
+                progress.setValue(generated)
+                QApplication.processEvents()
+        progress.setValue(total)
+
+        if not items:
+            QMessageBox.warning(self, "KenKen", "Nepodařilo se vygenerovat žádnou úlohu pro tisk.")
+            return
+
+        printer, pdf_path = create_output_printer(
+            self,
+            "BrainHub KenKen",
+            dlg.output_mode(),
+            dlg.pdf_path(),
+        )
+        if printer is None:
+            return
+
+        try:
+            draw_square_batch(printer, items, dlg.puzzles_per_page(), _draw_print_kenken)
+        except Exception as exc:
+            QMessageBox.critical(self, "KenKen", f"Tisk se nepodařil:\n{exc}")
+            return
+
+        if pdf_path:
+            QMessageBox.information(self, "KenKen", f"PDF vytvořeno:\n{pdf_path}")
+
+        if failures:
+            QMessageBox.warning(
+                self,
+                "KenKen",
+                f"{failures} úloh se nepodařilo vygenerovat a nebyly zahrnuty do výstupu.",
+            )
     
     def _update_progress(self) -> None:
         if not self.board.state:

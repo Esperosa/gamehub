@@ -710,7 +710,32 @@ class KenKenState:
         return (r, c, self.solution[r * self.size + c])
     
     def is_complete(self) -> bool:
-        return self.board == self.solution
+        n = self.size
+
+        # Must be fully filled.
+        if any(v == 0 for v in self.board):
+            return False
+
+        expected = set(range(1, n + 1))
+
+        # Latin square row/column constraints.
+        for r in range(n):
+            row_vals = self.board[r * n:(r + 1) * n]
+            if set(row_vals) != expected:
+                return False
+
+        for c in range(n):
+            col_vals = [self.board[r * n + c] for r in range(n)]
+            if set(col_vals) != expected:
+                return False
+
+        # Cage constraints.
+        for cage in self.cages:
+            vals = [self.board[r * n + c] for r, c in cage.cells]
+            if not cage.check(vals):
+                return False
+
+        return True
     
     def count_filled(self) -> int:
         return sum(1 for v in self.board if v != 0)
@@ -1261,10 +1286,48 @@ class KenKenGenerator:
         'divide': '/',
         'none': '',  # single cell
     }
+    # Use only classic KenKen operations. Local calcudoku also supports "xor",
+    # but this project does not implement xor rules in UI/solver.
+    OP_WEIGHTS = {
+        'add': 1.0,
+        'subtract': 1.0,
+        'multiply': 1.0,
+        'divide': 1.0,
+        'none': 1.0,
+        'xor': 0.0,
+    }
+    MAX_TARGET_DIGITS = 4
+    MAX_TARGET_VALUE = 10 ** MAX_TARGET_DIGITS - 1
     
     def __init__(self, config: KenKenConfig):
         self.config = config
         self.size = config.size
+
+    @staticmethod
+    def _num_digits(value: int) -> int:
+        return len(str(abs(int(value))))
+
+    def _fallback_constraint(self, values: List[int]) -> Tuple[str, int]:
+        """Return a guaranteed-valid KenKen constraint with a short target."""
+        if len(values) == 1:
+            return ('', int(values[0]))
+
+        # For 2-cell cages prefer classic binary ops when possible.
+        if len(values) == 2:
+            a, b = values
+            hi, lo = (a, b) if a >= b else (b, a)
+
+            if lo != 0 and hi % lo == 0:
+                div_target = hi // lo
+                if div_target <= self.MAX_TARGET_VALUE:
+                    return ('/', int(div_target))
+
+            diff_target = abs(a - b)
+            if diff_target <= self.MAX_TARGET_VALUE:
+                return ('-', int(diff_target))
+
+        # Sum is always safe for this game size range (3-9).
+        return ('+', int(sum(values)))
     
     def generate(self, seed: Optional[int] = None) -> KenKenState:
         """Generate puzzle using pycalcudoku.
@@ -1308,8 +1371,8 @@ class KenKenGenerator:
             
             Calcudoku = game_module.Calcudoku
         
-        # Generate puzzle
-        game = Calcudoku.generate(self.size)
+        # Generate puzzle (restricted to classic KenKen ops)
+        game = Calcudoku.generate(self.size, operation_p=self.OP_WEIGHTS)
         
         # Convert to our format
         n = self.size
@@ -1319,10 +1382,21 @@ class KenKenGenerator:
         for partition, (op_name, target) in zip(game.partitions, game.operations):
             # Convert flat indices to (row, col) tuples
             cells = [(idx // n, idx % n) for idx in partition]
-            operation = self.OP_MAP.get(op_name, '+')
+            values = [solution[r * n + c] for r, c in cells]
+            operation = self.OP_MAP.get(op_name)
+            target_int = int(target)
+
+            # Hard guarantee: keep only supported operations and <=4-digit targets.
+            if operation is None or self._num_digits(target_int) > self.MAX_TARGET_DIGITS:
+                operation, target_int = self._fallback_constraint(values)
+
+            # Extra safety: ensure cage label always matches the real solution values.
+            if not Cage(cells=cells, target=target_int, operation=operation).check(values):
+                operation, target_int = self._fallback_constraint(values)
+
             cages.append(Cage(
                 cells=cells,
-                target=int(target),
+                target=target_int,
                 operation=operation
             ))
         

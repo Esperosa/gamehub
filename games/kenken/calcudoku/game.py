@@ -106,7 +106,7 @@ def possible_operations(partitions):
         for name, (min_size, max_size, operation) in OPERATIONS.items():
             if min_size <= len(partition) <= max_size:
                 val = operation(partition)
-                if ~np.isnan(val):
+                if not np.isnan(val):
                     possibles.append((name, val))
         all_possibles.append(possibles)
     return all_possibles

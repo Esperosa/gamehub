@@ -25,8 +25,10 @@ from PySide6.QtGui import (
     QColor, QPainter, QPen, QFont, QBrush, QLinearGradient
 )
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
+    QApplication, QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QMessageBox, QProgressDialog
 )
+from hub.printing import BatchPrintDialog, VariantOption, create_output_printer, draw_square_batch
 
 # Import engine from the same directory (avoid conflicts with piskvorky engine)
 _this_dir = Path(__file__).resolve().parent
@@ -49,6 +51,77 @@ COLOR_SELECTED = QColor(110, 231, 255, 60) # Selection highlight
 COLOR_HINT = QColor(255, 200, 87)          # Yellow - hint
 COLOR_BOX_LINE = QColor(255, 255, 255, 80)
 COLOR_GRID_LINE = QColor(255, 255, 255, 30)
+SUDOKU_DIFF_LABELS = {"easy": "Lehká", "medium": "Střední", "hard": "Těžká"}
+
+
+def _draw_print_sudoku(
+    painter: QPainter,
+    tile_rect: QRectF,
+    item: Tuple[SudokuState, str],
+    _: int,
+) -> None:
+    state, _label = item
+    painter.save()
+
+    device = painter.device()
+    dpi = max(96.0, float(device.logicalDpiX() if device is not None else 300.0))
+
+    def mm(mm_value: float) -> float:
+        return (mm_value / 25.4) * dpi
+
+    painter.fillRect(tile_rect, Qt.white)
+
+    pad = max(mm(1.0), tile_rect.width() * 0.015)
+    board_rect = tile_rect.adjusted(pad, pad, -pad, -pad)
+
+    border_w = max(mm(0.90), board_rect.width() * 0.0070)
+    thin_w = max(mm(0.25), board_rect.width() * 0.0022)
+    box_w = max(mm(0.70), thin_w * 2.2)
+
+    painter.setPen(QPen(Qt.black, border_w))
+    painter.drawRect(board_rect)
+
+    n = state.size
+    cell = board_rect.width() / float(n)
+    board_left = board_rect.left()
+    board_top = board_rect.top()
+    board_side = board_rect.width()
+
+    painter.setPen(QPen(Qt.black, thin_w))
+    for i in range(1, n):
+        x = board_left + i * cell
+        y = board_top + i * cell
+        painter.drawLine(QPointF(x, board_top), QPointF(x, board_top + board_side))
+        painter.drawLine(QPointF(board_left, y), QPointF(board_left + board_side, y))
+
+    box_r = state.config.box_rows
+    box_c = state.config.box_cols
+    painter.setPen(QPen(Qt.black, box_w))
+    for i in range(1, n // box_c):
+        x = board_left + i * box_c * cell
+        painter.drawLine(QPointF(x, board_top), QPointF(x, board_top + board_side))
+    for i in range(1, n // box_r):
+        y = board_top + i * box_r * cell
+        painter.drawLine(QPointF(board_left, y), QPointF(board_left + board_side, y))
+
+    num_px = int(max(mm(1.9), min(cell * 0.64, cell - mm(0.7))))
+    num_font = QFont("Arial")
+    num_font.setBold(True)
+    num_font.setPixelSize(max(8, num_px))
+    painter.setFont(num_font)
+    painter.setPen(Qt.black)
+    for r in range(n):
+        for c in range(n):
+            idx = r * n + c
+            if not state.initial[idx]:
+                continue
+            val = state.board[idx]
+            if val == 0:
+                continue
+            rect = QRectF(board_left + c * cell, board_top + r * cell, cell, cell)
+            painter.drawText(rect, Qt.AlignCenter, str(val))
+
+    painter.restore()
 
 
 class ConfettiParticle:
@@ -609,6 +682,24 @@ class SudokuWidget(QWidget):
         """)
         self.btn_new.clicked.connect(self.new_game)
         row.addWidget(self.btn_new)
+
+        # Print/PDF button
+        self.btn_print = QPushButton("🖨 Tisk/PDF")
+        self.btn_print.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.20);
+                border-radius: 6px;
+                color: rgba(255, 255, 255, 0.92);
+                font-size: 12px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.14);
+            }
+        """)
+        self.btn_print.clicked.connect(self._on_print)
+        row.addWidget(self.btn_print)
         
         # Info row
         info = QHBoxLayout()
@@ -698,7 +789,14 @@ class SudokuWidget(QWidget):
         QTimer.singleShot(50, self._generate_puzzle)
     
     def _generate_puzzle(self) -> None:
-        state = create_puzzle(self.size, self.difficulty)
+        try:
+            state = create_puzzle(self.size, self.difficulty)
+        except Exception as exc:
+            self.lbl_status.setText("❌ Chyba generování")
+            self.lbl_progress.setText("Zkus prosím Nová hra")
+            QMessageBox.warning(self, "Sudoku", f"Nepodařilo se vygenerovat puzzle:\n{exc}")
+            return
+
         self.board.set_state(state)
         
         filled = state.count_filled()
@@ -717,6 +815,86 @@ class SudokuWidget(QWidget):
         self.board.show_hint()
         self.hints_used += 1
         self._update_progress()
+
+    def _on_print(self) -> None:
+        variants: List[VariantOption] = []
+        for size in (3, 6, 9):
+            for diff in ("easy", "medium", "hard"):
+                variants.append(
+                    VariantOption(
+                        key=f"{size}:{diff}",
+                        label=f"{size}×{size} · {SUDOKU_DIFF_LABELS[diff]}",
+                    )
+                )
+
+        dlg = BatchPrintDialog(
+            "Sudoku tisk",
+            variants,
+            default_variant_key=f"{self.size}:{self.difficulty}",
+            parent=self,
+        )
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        requests = dlg.selected_requests()
+        total = sum(count for _, count in requests)
+        items: List[Tuple[SudokuState, str]] = []
+        failures = 0
+
+        progress = QProgressDialog("Generuji sudoku pro tisk...", "Zrušit", 0, total, self)
+        progress.setWindowTitle("Sudoku")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        generated = 0
+        for variant, count in requests:
+            size_s, diff = variant.key.split(":")
+            size = int(size_s)
+            for _ in range(count):
+                if progress.wasCanceled():
+                    return
+                try:
+                    state = create_puzzle(size, diff)
+                except Exception:
+                    state = None
+
+                if state is not None:
+                    items.append((state, variant.label))
+                else:
+                    failures += 1
+                generated += 1
+                progress.setValue(generated)
+                QApplication.processEvents()
+        progress.setValue(total)
+
+        if not items:
+            QMessageBox.warning(self, "Sudoku", "Nepodařilo se vygenerovat žádnou úlohu pro tisk.")
+            return
+
+        printer, pdf_path = create_output_printer(
+            self,
+            "BrainHub Sudoku",
+            dlg.output_mode(),
+            dlg.pdf_path(),
+        )
+        if printer is None:
+            return
+
+        try:
+            draw_square_batch(printer, items, dlg.puzzles_per_page(), _draw_print_sudoku)
+        except Exception as exc:
+            QMessageBox.critical(self, "Sudoku", f"Tisk se nepodařil:\n{exc}")
+            return
+
+        if pdf_path:
+            QMessageBox.information(self, "Sudoku", f"PDF vytvořeno:\n{pdf_path}")
+
+        if failures:
+            QMessageBox.warning(
+                self,
+                "Sudoku",
+                f"{failures} úloh se nepodařilo vygenerovat a nebyly zahrnuty do výstupu.",
+            )
     
     def _update_progress(self) -> None:
         if not self.board.state:

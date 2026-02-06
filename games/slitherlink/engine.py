@@ -481,35 +481,627 @@ def load_random_puzzle(
     return SlitherlinkState.from_puzzle(puzzle)
 
 
+_DIR4: Tuple[Tuple[int, int], ...] = ((-1, 0), (0, 1), (1, 0), (0, -1))
+
+
+def _inside_to_solution_edges(
+    width: int,
+    height: int,
+    inside: Set[Tuple[int, int]],
+) -> Tuple[List[List[bool]], List[List[bool]]]:
+    """Convert an inside-cell region to its boundary loop edges."""
+    solution_h = [[False] * width for _ in range(height + 1)]
+    solution_v = [[False] * (width + 1) for _ in range(height)]
+
+    for r, c in inside:
+        if r == 0 or (r - 1, c) not in inside:
+            solution_h[r][c] = True
+        if r == height - 1 or (r + 1, c) not in inside:
+            solution_h[r + 1][c] = True
+        if c == 0 or (r, c - 1) not in inside:
+            solution_v[r][c] = True
+        if c == width - 1 or (r, c + 1) not in inside:
+            solution_v[r][c + 1] = True
+
+    return solution_h, solution_v
+
+
+def _solution_to_lines(
+    solution_h: List[List[bool]],
+    solution_v: List[List[bool]],
+) -> Set[Tuple[Tuple[int, int], Tuple[int, int]]]:
+    """Convert solution matrices to a set of line segments."""
+    lines: Set[Tuple[Tuple[int, int], Tuple[int, int]]] = set()
+
+    for r in range(len(solution_h)):
+        for c in range(len(solution_h[0])):
+            if solution_h[r][c]:
+                lines.add(((r, c), (r, c + 1)))
+
+    for r in range(len(solution_v)):
+        for c in range(len(solution_v[0])):
+            if solution_v[r][c]:
+                lines.add(((r, c), (r + 1, c)))
+
+    return lines
+
+
+def _is_single_cycle_solution(solution_h: List[List[bool]], solution_v: List[List[bool]]) -> bool:
+    """Check that solution represents exactly one simple loop."""
+    lines = _solution_to_lines(solution_h, solution_v)
+    if not lines:
+        return False
+
+    degree: Dict[Tuple[int, int], int] = {}
+    for v1, v2 in lines:
+        degree[v1] = degree.get(v1, 0) + 1
+        degree[v2] = degree.get(v2, 0) + 1
+    if any(d != 2 for d in degree.values()):
+        return False
+
+    components = _find_components(lines)
+    return len(components) == 1
+
+
+def _count_loop_turns(solution_h: List[List[bool]], solution_v: List[List[bool]]) -> int:
+    """Count 90-degree turns in a single closed loop."""
+    lines = _solution_to_lines(solution_h, solution_v)
+    if not lines:
+        return 0
+
+    adj: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
+    for a, b in lines:
+        adj.setdefault(a, []).append(b)
+        adj.setdefault(b, []).append(a)
+    if not adj:
+        return 0
+
+    start = next(iter(adj))
+    if len(adj[start]) < 2:
+        return 0
+
+    prev = start
+    curr = adj[start][0]
+    first_dir = (curr[0] - start[0], curr[1] - start[1])
+    prev_dir = first_dir
+    turns = 0
+
+    guard = len(lines) + 5
+    while curr != start and guard > 0:
+        guard -= 1
+        neighbors = adj.get(curr, [])
+        if len(neighbors) != 2:
+            return 0
+        nxt = neighbors[0] if neighbors[1] == prev else neighbors[1]
+        d = (nxt[0] - curr[0], nxt[1] - curr[1])
+        if d != prev_dir:
+            turns += 1
+        prev_dir = d
+        prev, curr = curr, nxt
+
+    if curr != start:
+        return 0
+
+    if prev_dir != first_dir:
+        turns += 1
+    return turns
+
+
+def _compute_clues_from_solution(
+    width: int,
+    height: int,
+    solution_h: List[List[bool]],
+    solution_v: List[List[bool]],
+) -> List[List[int]]:
+    clues: List[List[int]] = []
+    for r in range(height):
+        row: List[int] = []
+        for c in range(width):
+            cnt = 0
+            if solution_h[r][c]:
+                cnt += 1
+            if solution_h[r + 1][c]:
+                cnt += 1
+            if solution_v[r][c]:
+                cnt += 1
+            if solution_v[r][c + 1]:
+                cnt += 1
+            row.append(cnt)
+        clues.append(row)
+    return clues
+
+
+def _generate_inside_path_cells(
+    width: int,
+    height: int,
+    target_cells: int,
+    turn_bias: float,
+    branch_bias: float,
+    rng: random.Random,
+) -> Optional[Set[Tuple[int, int]]]:
+    """Generate a connected acyclic region quickly (frontier growth)."""
+    total_cells = width * height
+    target = max(4, min(total_cells, target_cells))
+
+    for _ in range(14):
+        start = (rng.randrange(height), rng.randrange(width))
+        inside: Set[Tuple[int, int]] = {start}
+        parent: Dict[Tuple[int, int], Tuple[int, int]] = {}
+        deg: Dict[Tuple[int, int], int] = {start: 0}
+        frontier: List[Tuple[Tuple[int, int], Tuple[int, int], int]] = []
+
+        def push_neighbors(cell: Tuple[int, int]) -> None:
+            r, c = cell
+            for d_idx, (dr, dc) in enumerate(_DIR4):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < height and 0 <= nc < width and (nr, nc) not in inside:
+                    frontier.append((cell, (nr, nc), d_idx))
+
+        push_neighbors(start)
+        stall_count = 0
+        steps_left = max(40, target * 6)
+
+        while len(inside) < target and steps_left > 0:
+            steps_left -= 1
+            if not frontier:
+                break
+
+            # Random subset to keep per-step work constant and fast.
+            if stall_count == 0:
+                sample_size = min(56, len(frontier))
+                picked: List[Tuple[Tuple[int, int], Tuple[int, int], int]] = []
+                for _k in range(sample_size):
+                    picked.append(frontier[rng.randrange(len(frontier))])
+            else:
+                # On stalls inspect full frontier once to avoid random misses.
+                picked = frontier
+
+            candidates: List[Tuple[float, Tuple[int, int], Tuple[int, int]]] = []
+            for parent_cell, child_cell, d_idx in picked:
+                pr, pc = parent_cell
+                nr, nc = child_cell
+                if (nr, nc) in inside:
+                    continue
+
+                # Keep tree property: child must touch exactly one inside cell.
+                neighbors_inside: List[Tuple[int, int]] = []
+                for adr, adc in _DIR4:
+                    ar, ac = nr + adr, nc + adc
+                    if 0 <= ar < height and 0 <= ac < width and (ar, ac) in inside:
+                        neighbors_inside.append((ar, ac))
+                if len(neighbors_inside) != 1:
+                    continue
+
+                real_parent = neighbors_inside[0]
+                pdeg = deg.get(real_parent, 0)
+
+                weight = 1.0
+
+                # Branch preference (hard strongly prefers nodes of degree 2 -> 3).
+                if pdeg == 2:
+                    weight *= 1.0 + 4.5 * branch_bias
+                elif pdeg == 1:
+                    weight *= 1.0 + 0.6 * (1.0 - branch_bias)
+                else:
+                    weight *= max(0.06, 1.0 - 0.70 * branch_bias)
+
+                # Turn preference from parent's incoming direction.
+                if real_parent in parent:
+                    ppr, ppc = parent[real_parent]
+                    incoming = (real_parent[0] - ppr, real_parent[1] - ppc)
+                    step = (nr - real_parent[0], nc - real_parent[1])
+                    if step == incoming:
+                        weight *= max(0.04, 1.0 - turn_bias)
+                    else:
+                        weight *= 1.0 + turn_bias
+
+                # Mild outward bias for harder levels => larger map coverage.
+                border_dist = min(nr, nc, height - 1 - nr, width - 1 - nc)
+                weight *= 1.0 + (0.10 + 0.12 * branch_bias) * border_dist
+                candidates.append((weight, real_parent, (nr, nc)))
+
+            if not candidates:
+                stall_count += 1
+
+                # Prune permanently-dead frontier entries:
+                # - child already inside
+                # - child currently touches 2+ inside cells (can never become valid later)
+                pruned: List[Tuple[Tuple[int, int], Tuple[int, int], int]] = []
+                seen = set()
+                for pcell, ccell, didx in frontier:
+                    if ccell in inside:
+                        continue
+                    nr, nc = ccell
+                    adj_count = 0
+                    for adr, adc in _DIR4:
+                        ar, ac = nr + adr, nc + adc
+                        if 0 <= ar < height and 0 <= ac < width and (ar, ac) in inside:
+                            adj_count += 1
+                            if adj_count > 1:
+                                break
+                    if adj_count != 1:
+                        continue
+                    key = (pcell, ccell, didx)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    pruned.append((pcell, ccell, didx))
+                frontier = pruned
+
+                if not frontier or stall_count >= 3:
+                    break
+                continue
+
+            total_w = sum(w for w, _, _ in candidates)
+            roll = rng.random() * total_w
+            chosen_parent = candidates[0][1]
+            chosen_cell = candidates[0][2]
+            acc = 0.0
+            for w, pcell, cell in candidates:
+                acc += w
+                if roll <= acc:
+                    chosen_parent = pcell
+                    chosen_cell = cell
+                    break
+
+            inside.add(chosen_cell)
+            parent[chosen_cell] = chosen_parent
+            deg[chosen_parent] = deg.get(chosen_parent, 0) + 1
+            deg[chosen_cell] = 1
+            push_neighbors(chosen_cell)
+            stall_count = 0
+
+        if len(inside) >= max(4, int(target * 0.90)):
+            return inside
+
+    return None
+
+
+def _mask_clues_for_difficulty(
+    full_clues: List[List[int]],
+    difficulty: str,
+    keep_ratio: float,
+    rng: random.Random,
+) -> List[List[Optional[int]]]:
+    """Remove clues quickly with difficulty-specific weighting."""
+    height = len(full_clues)
+    width = len(full_clues[0]) if height else 0
+    total = width * height
+    target_keep = max(1, min(total, int(round(total * keep_ratio))))
+    to_remove = total - target_keep
+    if to_remove <= 0:
+        return [[int(v) for v in row] for row in full_clues]
+
+    center_r0 = height // 4
+    center_r1 = height - height // 4
+    center_c0 = width // 4
+    center_c1 = width - width // 4
+
+    # Higher weight => higher chance to be removed.
+    value_remove_weights = {
+        "easy": {0: 1.00, 1: 0.85, 2: 1.10, 3: 0.80},
+        "medium": {0: 1.25, 1: 0.65, 2: 1.80, 3: 0.60},
+        "hard": {0: 1.50, 1: 0.40, 2: 2.30, 3: 0.35},
+    }
+    weight_by_value = value_remove_weights.get(difficulty, value_remove_weights["medium"])
+    center_mult = {"easy": 0.65, "medium": 0.85, "hard": 0.95}.get(difficulty, 0.85)
+
+    ranked: List[Tuple[float, int, int]] = []
+    for r in range(height):
+        for c in range(width):
+            clue = full_clues[r][c]
+            w = weight_by_value.get(clue, 1.0)
+            if center_r0 <= r < center_r1 and center_c0 <= c < center_c1:
+                w *= center_mult
+
+            priority = rng.random() * w
+            ranked.append((priority, r, c))
+
+    ranked.sort(reverse=True, key=lambda x: x[0])
+    remove_set = {(r, c) for _, r, c in ranked[:to_remove]}
+
+    # Post-balance: for medium/hard, ensure enough visible 1/3 clues (not mostly 2).
+    target_shown13 = {"easy": 0.30, "medium": 0.40, "hard": 0.50}.get(difficulty, 0.40)
+    removed_13: List[Tuple[int, int]] = []
+    shown_2: List[Tuple[int, int]] = []
+    shown_count = 0
+    shown13_count = 0
+    for r in range(height):
+        for c in range(width):
+            v = full_clues[r][c]
+            if (r, c) in remove_set:
+                if v in (1, 3):
+                    removed_13.append((r, c))
+            else:
+                shown_count += 1
+                if v in (1, 3):
+                    shown13_count += 1
+                elif v == 2:
+                    shown_2.append((r, c))
+
+    rng.shuffle(removed_13)
+    rng.shuffle(shown_2)
+    while removed_13 and shown_2 and (shown13_count / max(1, shown_count)) < target_shown13:
+        add_r, add_c = removed_13.pop()
+        rem_r, rem_c = shown_2.pop()
+        if (add_r, add_c) in remove_set and (rem_r, rem_c) not in remove_set:
+            remove_set.remove((add_r, add_c))
+            remove_set.add((rem_r, rem_c))
+            shown13_count += 1
+
+    clues: List[List[Optional[int]]] = []
+    for r in range(height):
+        row: List[Optional[int]] = []
+        for c in range(width):
+            row.append(None if (r, c) in remove_set else int(full_clues[r][c]))
+        clues.append(row)
+    return clues
+
+
+def _loop_area_ratio(solution_h: List[List[bool]], solution_v: List[List[bool]], width: int, height: int) -> float:
+    """Compute enclosed area ratio via polygon shoelace on the loop path."""
+    lines = _solution_to_lines(solution_h, solution_v)
+    if not lines:
+        return 0.0
+
+    adj: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
+    for a, b in lines:
+        adj.setdefault(a, []).append(b)
+        adj.setdefault(b, []).append(a)
+
+    start = next(iter(adj))
+    if len(adj[start]) < 2:
+        return 0.0
+
+    prev = start
+    curr = adj[start][0]
+    path = [start, curr]
+    guard = len(lines) + 5
+
+    while curr != start and guard > 0:
+        guard -= 1
+        nbs = adj.get(curr, [])
+        if len(nbs) != 2:
+            return 0.0
+        nxt = nbs[0] if nbs[1] == prev else nbs[1]
+        prev, curr = curr, nxt
+        path.append(curr)
+
+    if path[-1] != start:
+        return 0.0
+
+    area2 = 0
+    for i in range(len(path) - 1):
+        x1, y1 = path[i][1], path[i][0]
+        x2, y2 = path[i + 1][1], path[i + 1][0]
+        area2 += x1 * y2 - x2 * y1
+    area = abs(area2) / 2.0
+
+    return area / max(1, width * height)
+
+
+def _fast_generate_puzzle(
+    width: int,
+    height: int,
+    difficulty: str,
+    seed: Optional[int] = None,
+) -> Optional[SlitherlinkPuzzle]:
+    """Fast seed-driven generator focused on speed and turn-complexity."""
+    difficulty_key = (difficulty or "medium").lower().strip()
+    profiles = {
+        "easy": {
+            "target_turn_density": 0.28,
+            "target_area_ratio": 0.26,
+            "target_13_ratio": 0.26,
+            "turn_bias": 0.35,
+            "branch_bias": 0.25,
+            "keep_ratio": (0.72, 0.86),
+            "attempts": 5,
+            "accept": (0.15, 0.40, 0.16, 0.42, 0.24),
+        },
+        "medium": {
+            "target_turn_density": 0.37,
+            "target_area_ratio": 0.40,
+            "target_13_ratio": 0.36,
+            "turn_bias": 0.75,
+            "branch_bias": 0.60,
+            "keep_ratio": (0.68, 0.86),
+            "attempts": 7,
+            "accept": (0.30, 0.50, 0.28, 0.52, 0.30),
+        },
+        "hard": {
+            "target_turn_density": 0.48,
+            "target_area_ratio": 0.50,
+            "target_13_ratio": 0.45,
+            "turn_bias": 1.10,
+            "branch_bias": 1.00,
+            "keep_ratio": (0.70, 0.90),
+            "attempts": 9,
+            "accept": (0.42, 0.58, 0.38, 0.60, 0.40),
+        },
+    }
+    profile = profiles.get(difficulty_key, profiles["medium"])
+
+    base_seed = seed if seed is not None else random.randrange(1 << 30)
+    rng = random.Random(base_seed ^ 0x9E3779B9)
+    total_cells = width * height
+
+    best: Optional[SlitherlinkPuzzle] = None
+    best_score = -10**9
+
+    for attempt in range(profile["attempts"]):
+        local_rng = random.Random(base_seed + 7919 * (attempt + 1))
+        loop = generate_random_loop(width, height, seed=base_seed + 104729 * (attempt + 1))
+        if loop is not None:
+            solution_h, solution_v = loop
+        else:
+            # SAT unavailable/failed: build a complex loop from a connected cell region.
+            area_target = max(0.10, min(0.85, profile["target_area_ratio"] + local_rng.uniform(-0.08, 0.08)))
+            target_cells = max(4, int(width * height * area_target))
+            inside = _generate_inside_path_cells(
+                width=width,
+                height=height,
+                target_cells=target_cells,
+                turn_bias=profile["turn_bias"],
+                branch_bias=profile["branch_bias"],
+                rng=local_rng,
+            )
+            if not inside:
+                continue
+            solution_h, solution_v = _inside_to_solution_edges(width, height, inside)
+
+        if not _is_single_cycle_solution(solution_h, solution_v):
+            continue
+
+        lines = _solution_to_lines(solution_h, solution_v)
+        edge_count = len(lines)
+        if edge_count < 8:
+            continue
+
+        turns = _count_loop_turns(solution_h, solution_v)
+        turn_density = turns / edge_count
+        area_ratio = _loop_area_ratio(solution_h, solution_v, width, height)
+
+        clues_full = _compute_clues_from_solution(width, height, solution_h, solution_v)
+        k_lo, k_hi = profile["keep_ratio"]
+        keep_ratio = local_rng.uniform(k_lo, k_hi)
+        clues = _mask_clues_for_difficulty(clues_full, difficulty_key, keep_ratio, local_rng)
+
+        clue_count = sum(1 for r in range(height) for c in range(width) if clues[r][c] is not None)
+        clue_ratio = clue_count / max(1, total_cells)
+
+        one_three_full = sum(1 for r in range(height) for c in range(width) if clues_full[r][c] in (1, 3))
+        one_three_ratio = one_three_full / max(1, total_cells)
+
+        shown_total = 0
+        shown_one_three = 0
+        for r in range(height):
+            for c in range(width):
+                v = clues[r][c]
+                if v is None:
+                    continue
+                shown_total += 1
+                if v in (1, 3):
+                    shown_one_three += 1
+        shown_one_three_ratio = shown_one_three / max(1, shown_total)
+
+        # Score: prioritize turn + area by difficulty, then clue profile.
+        target_td = profile["target_turn_density"]
+        target_area = profile["target_area_ratio"]
+        complexity_score = -abs(turn_density - target_td) * 140.0
+        area_score = -abs(area_ratio - target_area) * 120.0
+        target_13 = profile["target_13_ratio"]
+        dist_13_score = -abs(one_three_ratio - target_13) * 110.0
+        clue_target = (k_lo + k_hi) / 2.0
+        clue_score = -abs(clue_ratio - clue_target) * 50.0
+        shown_13_bonus = shown_one_three_ratio * 35.0
+        edge_bonus = min(20.0, edge_count / max(1.0, total_cells) * 26.0)
+        score = complexity_score + area_score + dist_13_score + clue_score + shown_13_bonus + edge_bonus
+
+        puzzle = SlitherlinkPuzzle(
+            width=width,
+            height=height,
+            clues=clues,
+            solution_h=solution_h,
+            solution_v=solution_v,
+        )
+
+        if score > best_score:
+            best_score = score
+            best = puzzle
+
+        # Accept early when difficulty target is clearly met.
+        t_min, t_max, a_min, a_max, shown13_min = profile["accept"]
+        if difficulty_key == "hard":
+            if (
+                t_min <= turn_density <= t_max
+                and a_min <= area_ratio <= a_max
+                and clue_ratio >= 0.70
+                and shown_one_three_ratio >= shown13_min
+            ):
+                return puzzle
+        elif difficulty_key == "medium":
+            if (
+                t_min <= turn_density <= t_max
+                and a_min <= area_ratio <= a_max
+                and 0.66 <= clue_ratio <= 0.90
+                and shown_one_three_ratio >= shown13_min
+            ):
+                return puzzle
+        else:
+            if (
+                t_min <= turn_density <= t_max
+                and a_min <= area_ratio <= a_max
+                and clue_ratio >= 0.72
+            ):
+                return puzzle
+
+    if best is not None:
+        return best
+
+    # Soft fallback: a few more SAT-loop attempts, then give up to caller fallback.
+    for extra in range(4):
+        loop = generate_random_loop(width, height, seed=base_seed + 19937 * (extra + 1))
+        if loop is None:
+            continue
+        solution_h, solution_v = loop
+        clues_full = _compute_clues_from_solution(width, height, solution_h, solution_v)
+        k_lo, k_hi = profile["keep_ratio"]
+        keep_ratio = (k_lo + k_hi) / 2.0
+        clues = _mask_clues_for_difficulty(clues_full, difficulty_key, keep_ratio, rng)
+        return SlitherlinkPuzzle(
+            width=width,
+            height=height,
+            clues=clues,
+            solution_h=solution_h,
+            solution_v=solution_v,
+        )
+
+    # Non-SAT final fallback (still non-trivial, not a forced perimeter frame).
+    for extra in range(6):
+        local_rng = random.Random(base_seed + 65537 * (extra + 1))
+        target_cells = max(4, int(width * height * max(0.10, min(0.85, profile["target_area_ratio"]))))
+        inside = _generate_inside_path_cells(
+            width=width,
+            height=height,
+            target_cells=target_cells,
+            turn_bias=profile["turn_bias"],
+            branch_bias=profile["branch_bias"],
+            rng=local_rng,
+        )
+        if not inside:
+            continue
+        solution_h, solution_v = _inside_to_solution_edges(width, height, inside)
+        if not _is_single_cycle_solution(solution_h, solution_v):
+            continue
+        clues_full = _compute_clues_from_solution(width, height, solution_h, solution_v)
+        k_lo, k_hi = profile["keep_ratio"]
+        keep_ratio = (k_lo + k_hi) / 2.0
+        clues = _mask_clues_for_difficulty(clues_full, difficulty_key, keep_ratio, local_rng)
+        return SlitherlinkPuzzle(
+            width=width,
+            height=height,
+            clues=clues,
+            solution_h=solution_h,
+            solution_v=solution_v,
+        )
+
+    return None
+
+
 def create_puzzle(
     size: int = 10,
-    difficulty: str = 'medium'
+    difficulty: str = 'medium',
+    seed: Optional[int] = None,
 ) -> Optional[SlitherlinkState]:
-    """Create a puzzle using real-time generation.
-    
-    Args:
-        size: Grid size (both width and height)
-        difficulty: 'easy', 'medium', or 'hard' - affects clue density
-    
-    Returns:
-        SlitherlinkState ready to play
-    """
-    # Difficulty affects minimum clue ratio
-    clue_ratios = {
-        'easy': 0.5,      # More clues = easier
-        'medium': 0.35,
-        'hard': 0.2,      # Fewer clues = harder
-    }
-    min_clues_ratio = clue_ratios.get(difficulty, 0.35)
-    
-    # Try generating with random seed.
-    puzzle = generate_puzzle(size, size, seed=None, min_clues_ratio=min_clues_ratio)
+    """Create a puzzle quickly with seed-driven complexity profiles."""
+    puzzle = _fast_generate_puzzle(size, size, difficulty, seed=seed)
     if puzzle is not None:
         return SlitherlinkState.from_puzzle(puzzle)
 
-    # Runtime fallback for packaged environments where SAT backend may be unavailable.
-    # If templates are bundled, load a matching puzzle instead of failing hard.
-    return load_random_puzzle(size=size, difficulty=difficulty)
+    # Fallback to templates (packaged mode or unexpected generation failure).
+    difficulty_key = (difficulty or "medium").lower().strip()
+    return load_random_puzzle(size=size, difficulty=difficulty_key)
 
 
 # Simple constraint propagation solver for hints
@@ -1318,8 +1910,41 @@ def count_solutions(puzzle: SlitherlinkPuzzle, limit: int = 2) -> int:
     return count
 
 
-def generate_puzzle(width: int, height: int, seed: Optional[int] = None, 
-                    min_clues_ratio: float = 0.3) -> Optional[SlitherlinkPuzzle]:
+def _propagation_resolved_ratio(puzzle: SlitherlinkPuzzle) -> float:
+    """Estimate logical easiness by simple propagation-only progress.
+
+    Returns:
+        Ratio (0..1) of edges resolved by the built-in propagation rules from an empty board.
+        Higher means easier for human-like basic deductions.
+    """
+    state = SlitherlinkState.from_puzzle(puzzle)
+    solver = SlitherlinkSolver(state)
+    solver.propagate()
+
+    total_edges = (
+        len(state.h_edges) * len(state.h_edges[0]) +
+        len(state.v_edges) * len(state.v_edges[0])
+    )
+    if total_edges == 0:
+        return 0.0
+
+    resolved = (
+        sum(1 for row in state.h_edges for v in row if v != 0) +
+        sum(1 for row in state.v_edges for v in row if v != 0)
+    )
+    return resolved / total_edges
+
+
+def generate_puzzle(
+    width: int,
+    height: int,
+    seed: Optional[int] = None,
+    min_clues_ratio: float = 0.3,
+    max_clues_ratio: Optional[float] = None,
+    protect_strong_clues: bool = True,
+    center_keep_ratio: float = 0.25,
+    max_uniqueness_checks: Optional[int] = None,
+) -> Optional[SlitherlinkPuzzle]:
     """Generate a random Slitherlink puzzle with unique solution.
     
     Args:
@@ -1327,6 +1952,10 @@ def generate_puzzle(width: int, height: int, seed: Optional[int] = None,
         height: Grid height (cells)
         seed: Random seed for reproducibility
         min_clues_ratio: Minimum ratio of cells that must have clues
+        max_clues_ratio: Maximum ratio of cells that may remain (randomized target)
+        protect_strong_clues: If True, keep most 0/4 clues (strong constraints)
+        center_keep_ratio: Minimum fraction of non-zero center clues to keep
+        max_uniqueness_checks: Upper limit of SAT uniqueness checks during clue removal
     
     Returns:
         SlitherlinkPuzzle with guaranteed unique solution, or None if generation fails
@@ -1369,7 +1998,13 @@ def generate_puzzle(width: int, height: int, seed: Optional[int] = None,
     
     # Clue removal with uniqueness checking
     total_cells = width * height
-    min_clues = int(total_cells * min_clues_ratio)
+    min_clues_ratio = max(0.0, min(1.0, min_clues_ratio))
+    if max_clues_ratio is None:
+        max_clues_ratio = min(1.0, min_clues_ratio + 0.15)
+    max_clues_ratio = max(min_clues_ratio, min(1.0, max_clues_ratio))
+
+    target_ratio = random.uniform(min_clues_ratio, max_clues_ratio)
+    target_clues = max(1, min(total_cells, int(round(total_cells * target_ratio))))
     
     # Identify center region - must keep some non-zero clues there
     center_start_r = height // 4
@@ -1393,69 +2028,52 @@ def generate_puzzle(width: int, height: int, seed: Optional[int] = None,
     center_cells = [(r, c) for r in range(height) for c in range(width) 
                     if is_in_center(r, c)]
     
-    random.shuffle(edge_cells)
-    random.shuffle(center_cells)
-    
-    # Process edge cells first, then center cells
-    all_cells = edge_cells + center_cells
-    
     removed = 0
-    max_to_remove = total_cells - min_clues
+    max_to_remove = max(0, total_cells - target_clues)
     
     # Minimum non-zero clues required in center
-    min_center_nonzero = max(1, (center_end_r - center_start_r) * (center_end_c - center_start_c) // 4)
+    center_cells_count = max(1, (center_end_r - center_start_r) * (center_end_c - center_start_c))
+    min_center_nonzero = int(center_cells_count * max(0.0, min(1.0, center_keep_ratio)))
+    center_nonzero = count_center_nonzero()
     
-    # For larger puzzles, skip uniqueness checking and just randomly remove some clues
-    if total_cells > 120:
-        # Random removal without uniqueness checking for large puzzles
-        target_removal = int(total_cells * 0.25)  # Remove ~25% of clues
-        for r, c in all_cells:
-            if removed >= target_removal:
-                break
-            clue = puzzle.clues[r][c]
-            if clue is not None and clue not in (0, 4):
-                # Protect center non-zero clues
-                if is_in_center(r, c) and clue > 0:
-                    if count_center_nonzero() <= min_center_nonzero:
-                        continue  # Don't remove - would leave center empty
-                if random.random() < 0.6:
-                    puzzle.clues[r][c] = None
-                    removed += 1
-        return puzzle
-    
-    # For smaller puzzles, use uniqueness checking
-    max_checks = 50 if total_cells <= 80 else 25
+    if max_uniqueness_checks is None:
+        max_uniqueness_checks = max(80, min(1000, max_to_remove * 6))
     checks_done = 0
     
+    # Single-pass removal with uniqueness checks.
+    random.shuffle(edge_cells)
+    random.shuffle(center_cells)
+    all_cells = edge_cells + center_cells
+    
     for r, c in all_cells:
-        if removed >= max_to_remove or checks_done >= max_checks:
+        if removed >= max_to_remove or checks_done >= max_uniqueness_checks:
             break
         
         clue = puzzle.clues[r][c]
         if clue is None:
             continue
         
-        # Skip clues that are definitely needed (0 and 4 are strong constraints)
-        if clue in (0, 4):
+        if protect_strong_clues and clue in (0, 4):
             continue
         
-        # Protect center non-zero clues
-        if is_in_center(r, c) and clue > 0:
-            if count_center_nonzero() <= min_center_nonzero:
-                continue  # Don't remove - would leave center empty
+        in_center = is_in_center(r, c)
+        center_positive = in_center and clue > 0
         
-        # Try removing this clue
+        # Protect center non-zero clues according to difficulty profile.
+        if min_center_nonzero > 0 and center_positive and center_nonzero <= min_center_nonzero:
+            continue
+        
+        # Try removing this clue.
         puzzle.clues[r][c] = None
         checks_done += 1
         
-        # Check if puzzle still has unique solution
+        # Keep only if uniqueness is preserved.
         solutions = count_solutions(puzzle, limit=2)
-        
         if solutions == 1:
-            # Uniqueness preserved, keep it removed
             removed += 1
+            if center_positive:
+                center_nonzero -= 1
         else:
-            # Restore clue to maintain uniqueness
             puzzle.clues[r][c] = clue
     
     return puzzle
