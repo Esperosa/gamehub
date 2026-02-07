@@ -15,11 +15,14 @@ All puzzles are guaranteed to have exactly one solution.
 from __future__ import annotations
 
 import random
+import time
 import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Set, Dict, FrozenSet
 from itertools import permutations, product
 from functools import lru_cache
+
+from hub.solver_contract import Hint, SolveStatus, SolverResult
 
 # Numba JIT compilation for native CPU speed
 try:
@@ -708,6 +711,20 @@ class KenKenState:
             return None
         
         return (r, c, self.solution[r * self.size + c])
+
+    def get_hint_result(self) -> Optional[Hint]:
+        hint = self.get_hint()
+        if hint is None:
+            return None
+        row, col, value = hint
+        numeric_value = int(value)
+        return Hint(
+            type="cell_value",
+            cells=((row, col),),
+            explanation=f"Place value {numeric_value} in this cell.",
+            confidence=0.95,
+            payload={"value": numeric_value},
+        )
     
     def is_complete(self) -> bool:
         n = self.size
@@ -1166,6 +1183,62 @@ class KenKenSolver:
         if not self.validate_solution(work_board):
             return None
         return work_board
+
+    def solve_result(
+        self,
+        board: List[int],
+        timeout: Optional[float] = None,
+        detect_multiple: bool = True,
+    ) -> SolverResult:
+        """Normalized solver output for hub-level consumption."""
+        start = time.perf_counter()
+        try:
+            parsed = self.parse(board)
+        except ValueError as exc:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            return SolverResult(
+                status=SolveStatus.UNSOLVABLE,
+                solution=None,
+                solutions_found=0,
+                elapsed_ms=elapsed_ms,
+                message=str(exc),
+            )
+
+        solved = self.solve(parsed)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        if solved is None:
+            return SolverResult(
+                status=SolveStatus.UNSOLVABLE,
+                solution=None,
+                solutions_found=0,
+                elapsed_ms=elapsed_ms,
+                message="No satisfying assignment found.",
+            )
+
+        solutions_found: Optional[int] = None
+        status = SolveStatus.SOLVED
+        if detect_multiple:
+            count = self.count_solutions(parsed, limit=2, timeout=timeout)
+            if count == -1:
+                elapsed_ms = int((time.perf_counter() - start) * 1000)
+                return SolverResult(
+                    status=SolveStatus.TIMEOUT,
+                    solution=None,
+                    solutions_found=None,
+                    elapsed_ms=elapsed_ms,
+                    message="Solution counting timed out.",
+                )
+            solutions_found = count
+            if count > 1:
+                status = SolveStatus.MULTIPLE_SOLUTIONS
+
+        return SolverResult(
+            status=status,
+            solution=solved,
+            solutions_found=solutions_found,
+            elapsed_ms=elapsed_ms,
+            message="Solved" if status == SolveStatus.SOLVED else "Multiple valid solutions found.",
+        )
 
     def _solve_fast(self, board: List[int], candidates: List[int]) -> bool:
         """Legacy wrapper kept for compatibility with older call paths."""

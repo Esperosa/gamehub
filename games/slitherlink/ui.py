@@ -417,7 +417,14 @@ class SlitherlinkBoard(QWidget):
             return
         
         solver = SlitherlinkSolver(self.state)
-        hint = solver.get_hint()
+        hint_obj = solver.get_hint_result()
+        if hint_obj and hint_obj.cells:
+            row, col = hint_obj.cells[0]
+            edge_type = str(hint_obj.payload.get("edge_type", "h"))
+            value = int(hint_obj.payload.get("value", 0))
+            hint = (edge_type, row, col, value)
+        else:
+            hint = solver.get_hint()
         
         if hint:
             edge_type, row, col, value = hint

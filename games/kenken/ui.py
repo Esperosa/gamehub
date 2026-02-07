@@ -398,7 +398,13 @@ class KenKenBoard(QWidget):
         if not self.state:
             return
         
-        hint = self.state.get_hint()
+        hint_obj = self.state.get_hint_result()
+        if hint_obj and hint_obj.cells:
+            row, col = hint_obj.cells[0]
+            value = int(hint_obj.payload.get("value", 0))
+            hint = (row, col, value)
+        else:
+            hint = self.state.get_hint()
         if hint:
             row, col, value = hint
             self.state.set(row, col, value)

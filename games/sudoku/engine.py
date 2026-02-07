@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import random
 import math
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Set
 from copy import deepcopy
+
+from hub.solver_contract import Hint, SolveStatus, SolverResult
 
 
 @dataclass
@@ -99,6 +102,19 @@ class SudokuState:
         
         idx = r * self.size + c
         return (r, c, self.solution[idx])
+
+    def get_hint_result(self) -> Optional[Hint]:
+        hint = self.get_hint()
+        if hint is None:
+            return None
+        row, col, value = hint
+        return Hint(
+            type="cell_value",
+            cells=((row, col),),
+            explanation=f"Place value {value} in this cell.",
+            confidence=0.95,
+            payload={"value": int(value)},
+        )
     
     def is_complete(self) -> bool:
         """Check if puzzle is correctly completed."""
@@ -194,6 +210,70 @@ class SudokuSolver:
         if self._solve_recursive(board):
             return board
         return None
+
+    def solve_result(
+        self,
+        board: List[int],
+        timeout: Optional[float] = None,
+        detect_multiple: bool = True,
+    ) -> SolverResult:
+        """Normalized solver output for hub-level consumption."""
+        start = time.perf_counter()
+        if timeout is not None and timeout <= 0:
+            return SolverResult(
+                status=SolveStatus.TIMEOUT,
+                solution=None,
+                solutions_found=None,
+                elapsed_ms=0,
+                message="Timeout budget is zero.",
+            )
+
+        solved = self.solve(board)
+        elapsed = time.perf_counter() - start
+        elapsed_ms = int(elapsed * 1000)
+        if timeout is not None and elapsed > timeout:
+            return SolverResult(
+                status=SolveStatus.TIMEOUT,
+                solution=None,
+                solutions_found=None,
+                elapsed_ms=elapsed_ms,
+                message="Solver timed out before completion.",
+            )
+
+        if solved is None:
+            return SolverResult(
+                status=SolveStatus.UNSOLVABLE,
+                solution=None,
+                solutions_found=0,
+                elapsed_ms=elapsed_ms,
+                message="No satisfying assignment found.",
+            )
+
+        status = SolveStatus.SOLVED
+        solutions_found: Optional[int] = None
+        if detect_multiple:
+            count = self.count_solutions(board, limit=2)
+            solutions_found = count
+            elapsed = time.perf_counter() - start
+            elapsed_ms = int(elapsed * 1000)
+            if timeout is not None and elapsed > timeout:
+                return SolverResult(
+                    status=SolveStatus.TIMEOUT,
+                    solution=None,
+                    solutions_found=None,
+                    elapsed_ms=elapsed_ms,
+                    message="Solution counting timed out.",
+                )
+            if count > 1:
+                status = SolveStatus.MULTIPLE_SOLUTIONS
+
+        return SolverResult(
+            status=status,
+            solution=solved,
+            solutions_found=solutions_found,
+            elapsed_ms=elapsed_ms,
+            message="Solved" if status == SolveStatus.SOLVED else "Multiple valid solutions found.",
+        )
     
     def _solve_recursive(self, board: List[int]) -> bool:
         """Recursive backtracking solver."""

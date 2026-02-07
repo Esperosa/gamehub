@@ -297,7 +297,13 @@ class NonogramBoard(QWidget):
             return False
         
         solver = NonogramSolver(self.state)
-        hint = solver.get_hint()
+        hint_obj = solver.get_hint_result()
+        if hint_obj and hint_obj.cells:
+            row, col = hint_obj.cells[0]
+            value = int(hint_obj.payload.get("value", 0))
+            hint = (row, col, value)
+        else:
+            hint = solver.get_hint()
         
         if hint:
             row, col, value = hint

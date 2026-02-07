@@ -7,9 +7,12 @@ The clues indicate the lengths of consecutive filled cell blocks in that line.
 from __future__ import annotations
 
 import random
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Set
 from pathlib import Path
+
+from hub.solver_contract import Hint, SolveStatus, SolverResult
 
 
 @dataclass
@@ -257,6 +260,9 @@ class NonogramSolver:
         row_solvers: List[LineSolver]
         col_solvers: List[LineSolver]
 
+    class _SolveTimeout(Exception):
+        pass
+
     def __init__(self, state: NonogramState):
         self.state = state
         self.puzzle = state.puzzle
@@ -417,8 +423,12 @@ class NonogramSolver:
         state: NonogramState,
         constraints: Optional["NonogramSolver.ConstraintModel"] = None,
         depth: int = 0,
+        deadline: Optional[float] = None,
     ) -> Optional[NonogramState]:
         """Depth-first search with propagation and early contradiction detection."""
+        if deadline is not None and time.perf_counter() >= deadline:
+            raise NonogramSolver._SolveTimeout()
+
         work_state = self.parse(state)
         model = constraints or self.encode_constraints(work_state)
         max_depth = work_state.puzzle.width * work_state.puzzle.height + 1
@@ -445,13 +455,57 @@ class NonogramSolver:
             return None
 
         for guess in domain:
+            if deadline is not None and time.perf_counter() >= deadline:
+                raise NonogramSolver._SolveTimeout()
             candidate = self._clone_state(work_state)
             candidate.grid[row][col] = guess
-            solved = self.search(candidate, model, depth + 1)
+            solved = self.search(candidate, model, depth + 1, deadline=deadline)
             if solved is not None:
                 return solved
 
         return None
+
+    def _count_solutions_limited(
+        self,
+        state: NonogramState,
+        constraints: "NonogramSolver.ConstraintModel",
+        limit: int = 2,
+        deadline: Optional[float] = None,
+    ) -> int:
+        if deadline is not None and time.perf_counter() >= deadline:
+            raise NonogramSolver._SolveTimeout()
+
+        work_state = self._clone_state(state)
+        while True:
+            if deadline is not None and time.perf_counter() >= deadline:
+                raise NonogramSolver._SolveTimeout()
+            step = self.propagate(work_state, constraints)
+            if not step.consistent:
+                return 0
+            if not step.changed:
+                break
+
+        if self.validate_solution(work_state):
+            return 1
+
+        choice = self.select_var(work_state, constraints)
+        if choice is None:
+            return 0
+
+        row, col = choice
+        domain = self._cell_domain(work_state, row, col)
+        if not domain:
+            return 0
+
+        total = 0
+        for guess in domain:
+            if total >= limit:
+                break
+            candidate = self._clone_state(work_state)
+            candidate.grid[row][col] = guess
+            total += self._count_solutions_limited(candidate, constraints, limit - total, deadline=deadline)
+
+        return total
 
     def validate_solution(self, state: NonogramState) -> bool:
         """Validate final state against clues with no unknown cells left."""
@@ -474,12 +528,57 @@ class NonogramSolver:
         """Fully solve the puzzle using parse/propagate/search pipeline."""
         base_state = self.parse()
         model = self.encode_constraints(base_state)
-        solved = self.search(self._clone_state(base_state), model, depth=0)
+        solved = self.search(self._clone_state(base_state), model, depth=0, deadline=None)
         if solved is None:
             return None
 
         self.state.grid = [row[:] for row in solved.grid]
         return self.state
+
+    def solve_result(self, timeout: Optional[float] = None, detect_multiple: bool = True) -> SolverResult:
+        """Normalized solver output for hub-level consumption."""
+        start = time.perf_counter()
+        deadline = None if timeout is None else (start + max(0.0, timeout))
+
+        try:
+            base_state = self.parse()
+            model = self.encode_constraints(base_state)
+            solved = self.search(self._clone_state(base_state), model, depth=0, deadline=deadline)
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+            if solved is None:
+                return SolverResult(
+                    status=SolveStatus.UNSOLVABLE,
+                    solution=None,
+                    solutions_found=0,
+                    elapsed_ms=elapsed_ms,
+                    message="No satisfying grid found.",
+                )
+
+            solutions_found: Optional[int] = None
+            status = SolveStatus.SOLVED
+            if detect_multiple:
+                solutions_found = self._count_solutions_limited(base_state, model, limit=2, deadline=deadline)
+                if solutions_found > 1:
+                    status = SolveStatus.MULTIPLE_SOLUTIONS
+
+            self.state.grid = [row[:] for row in solved.grid]
+            return SolverResult(
+                status=status,
+                solution=self.state,
+                solutions_found=solutions_found,
+                elapsed_ms=elapsed_ms,
+                message="Solved" if status == SolveStatus.SOLVED else "Multiple valid solutions found.",
+            )
+        except NonogramSolver._SolveTimeout:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            return SolverResult(
+                status=SolveStatus.TIMEOUT,
+                solution=None,
+                solutions_found=None,
+                elapsed_ms=elapsed_ms,
+                message="Solver timed out before completion.",
+            )
 
     def get_hint(self) -> Optional[Tuple[int, int, int]]:
         """
@@ -509,6 +608,21 @@ class NonogramSolver:
                     return (row, col, solved.grid[row][col])
 
         return None
+
+    def get_hint_result(self) -> Optional[Hint]:
+        hint = self.get_hint()
+        if hint is None:
+            return None
+
+        row, col, value = hint
+        explanation = "Fill this cell." if value == 1 else "Mark this cell as empty."
+        return Hint(
+            type="cell_state",
+            cells=((row, col),),
+            explanation=explanation,
+            confidence=0.75,
+            payload={"value": value},
+        )
 
 
 # =============================================================================

@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import json
 import random
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple, Set, Dict, FrozenSet
+
+from hub.solver_contract import Hint, SolveStatus, SolverResult
 
 
 @dataclass
@@ -1271,10 +1274,78 @@ class SlitherlinkSolver:
                         return ('v', r, c, 1 if solution.v_edges[r][c] == 1 else -1)
         
         return None
+
+    def get_hint_result(self) -> Optional[Hint]:
+        hint = self.get_hint()
+        if hint is None:
+            return None
+        edge_type, row, col, value = hint
+        explanation = "Draw this edge." if value == 1 else "Mark this edge as empty."
+        return Hint(
+            type="edge_state",
+            cells=((row, col),),
+            explanation=explanation,
+            confidence=0.75,
+            payload={"edge_type": edge_type, "value": value},
+        )
     
     def solve(self) -> Optional[SlitherlinkState]:
         """Fully solve using SAT solver. Returns solved state or None."""
         return solve_with_sat(self.state)
+
+    def solve_result(self, timeout: Optional[float] = None, detect_multiple: bool = True) -> SolverResult:
+        """Normalized solver output for hub-level consumption."""
+        start = time.perf_counter()
+        deadline = None if timeout is None else (start + max(0.0, timeout))
+        searcher = _SatSlitherlinkSearch(self.state)
+
+        try:
+            solved = searcher.search(deadline=deadline)
+        except _SatSlitherlinkSearch._SolveTimeout:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            return SolverResult(
+                status=SolveStatus.TIMEOUT,
+                solution=None,
+                solutions_found=None,
+                elapsed_ms=elapsed_ms,
+                message="Solver timed out before completion.",
+            )
+
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        if solved is None:
+            return SolverResult(
+                status=SolveStatus.UNSOLVABLE,
+                solution=None,
+                solutions_found=0,
+                elapsed_ms=elapsed_ms,
+                message="No satisfying loop found.",
+            )
+
+        status = SolveStatus.SOLVED
+        solutions_found: Optional[int] = None
+        if detect_multiple:
+            try:
+                has_alt = searcher.has_alternative_solution(solved, deadline=deadline)
+            except _SatSlitherlinkSearch._SolveTimeout:
+                elapsed_ms = int((time.perf_counter() - start) * 1000)
+                return SolverResult(
+                    status=SolveStatus.TIMEOUT,
+                    solution=None,
+                    solutions_found=None,
+                    elapsed_ms=elapsed_ms,
+                    message="Alternative-solution check timed out.",
+                )
+            solutions_found = 2 if has_alt else 1
+            if has_alt:
+                status = SolveStatus.MULTIPLE_SOLUTIONS
+
+        return SolverResult(
+            status=status,
+            solution=solved,
+            solutions_found=solutions_found,
+            elapsed_ms=elapsed_ms,
+            message="Solved" if status == SolveStatus.SOLVED else "Multiple valid solutions found.",
+        )
 
 
 def solve_with_sat(state: SlitherlinkState) -> Optional[SlitherlinkState]:
@@ -1287,6 +1358,9 @@ class _SatSlitherlinkSearch:
     class Encoding:
         clauses: List[List[int]]
         max_var: int
+
+    class _SolveTimeout(Exception):
+        pass
 
     def __init__(self, state: SlitherlinkState):
         self.state = state
@@ -1347,6 +1421,10 @@ class _SatSlitherlinkSearch:
                     return None
 
         return self.state
+
+    def _check_deadline(self, deadline: Optional[float]) -> None:
+        if deadline is not None and time.perf_counter() >= deadline:
+            raise _SatSlitherlinkSearch._SolveTimeout()
 
     def _edges_at_vertex(self, vr: int, vc: int) -> List[int]:
         edges: List[int] = []
@@ -1427,18 +1505,21 @@ class _SatSlitherlinkSearch:
 
         return _SatSlitherlinkSearch.Encoding(clauses=clauses, max_var=max_var)
 
-    def propagate(self, encoding: "_SatSlitherlinkSearch.Encoding") -> Optional[Set[int]]:
+    def propagate(self, encoding: "_SatSlitherlinkSearch.Encoding", deadline: Optional[float] = None) -> Optional[Set[int]]:
         """Run one SAT solve step and return positive literals from the model."""
+        self._check_deadline(deadline)
         solver = self._Solver(name="g3")
         for clause in encoding.clauses:
             solver.add_clause(clause)
 
+        self._check_deadline(deadline)
         if not solver.solve():
             solver.delete()
             return None
 
         model = solver.get_model() or []
         solver.delete()
+        self._check_deadline(deadline)
         return {v for v in model if v > 0}
 
     def _decode_model(self, true_vars: Set[int]) -> SlitherlinkState:
@@ -1483,16 +1564,37 @@ class _SatSlitherlinkSearch:
         complete, _ = candidate.is_complete()
         return bool(complete)
 
-    def search(self, max_iterations: int = 100) -> Optional[SlitherlinkState]:
+    def _full_solution_blocking_clause(self, solution: SlitherlinkState) -> List[int]:
+        clause: List[int] = []
+        for r in range(self.h_rows):
+            for c in range(self.h_cols):
+                var = self.h_var(r, c)
+                clause.append(-var if solution.h_edges[r][c] == 1 else var)
+        for r in range(self.v_rows):
+            for c in range(self.v_cols):
+                var = self.v_var(r, c)
+                clause.append(-var if solution.v_edges[r][c] == 1 else var)
+        return clause
+
+    def search(
+        self,
+        max_iterations: int = 100,
+        deadline: Optional[float] = None,
+        extra_clauses: Optional[List[List[int]]] = None,
+    ) -> Optional[SlitherlinkState]:
         """Iterative SAT solving with loop-component blocking search."""
         encoding = self.encode_constraints()
         if encoding is None:
             return None
 
         clauses = [clause[:] for clause in encoding.clauses]
+        if extra_clauses:
+            clauses.extend([clause[:] for clause in extra_clauses])
+
         for _ in range(max_iterations):
+            self._check_deadline(deadline)
             step_encoding = _SatSlitherlinkSearch.Encoding(clauses=clauses, max_var=encoding.max_var)
-            true_vars = self.propagate(step_encoding)
+            true_vars = self.propagate(step_encoding, deadline=deadline)
             if true_vars is None:
                 return None
 
@@ -1511,6 +1613,12 @@ class _SatSlitherlinkSearch:
             clauses.append(blocking)
 
         return None
+
+    def has_alternative_solution(self, solution: SlitherlinkState, deadline: Optional[float] = None) -> bool:
+        """Check if a second distinct valid solution exists."""
+        block = self._full_solution_blocking_clause(solution)
+        alt = self.search(deadline=deadline, extra_clauses=[block])
+        return alt is not None
 
 
 def _find_components(lines: Set[Tuple[Tuple[int, int], Tuple[int, int]]]) -> List[Set]:
