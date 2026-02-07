@@ -24,8 +24,7 @@ function Get-GitValue {
     param(
         [Parameter(Mandatory = $true)]
         [string[]]$Arguments,
-        [Parameter(Mandatory = $true)]
-        [string]$Fallback
+        [string]$Fallback = ""
     )
 
     try {
