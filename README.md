@@ -2,6 +2,52 @@
 
 Desktop aplikace v Pythonu (PySide6), která sdružuje více logických her do jednoho přehledného launcheru.
 
+## Download
+
+- Latest stable build: [GitHub Releases](https://github.com/Esperosa/gamehub/releases)
+- Windows: `GameHub_*_windows_x64.exe` (+ `.zip`)
+- Linux (optional): `GameHub_*_linux_x86_64` (+ `.tar.gz`)
+- Každý release obsahuje `SHA256SUMS.txt` pro ověření integrity.
+
+## Features
+
+- 9 logických her v jednom launcheru (`2048`, `KenKen`, `Mastermind`, `Nonogram`, `Othello`, `Piškvorky`, `Simon`, `Slitherlink`, `Sudoku`)
+- Plugin-first architektura (`games/<hra>/plugin.py`)
+- Oddělené vrstvy `engine / solver / ui` pro každou hru
+- Tisk/PDF export pro `Sudoku`, `KenKen`, `Slitherlink`
+- One-file release pipeline (Windows + Linux artifacts + SHA256)
+
+## Support Matrix
+
+| Platform | Stav | Artefakt v Releases |
+|---|---|---|
+| Windows x64 | testováno | `.exe`, `.zip` |
+| Linux x86_64 | optional (best effort) | binárka, `.tar.gz` |
+
+## Screenshots
+
+| Home | 2048 |
+|---|---|
+| ![Home](docs/media/home.png) | ![2048](docs/media/game2048.png) |
+
+| KenKen | Mastermind |
+|---|---|
+| ![KenKen](docs/media/kenken.png) | ![Mastermind](docs/media/mastermind.png) |
+
+| Othello | Piškvorky |
+|---|---|
+| ![Othello](docs/media/othello.png) | ![Piskvorky](docs/media/piskvorky.png) |
+
+| Slitherlink | Sudoku |
+|---|---|
+| ![Slitherlink](docs/media/slitherlink.png) | ![Sudoku](docs/media/sudoku.png) |
+
+## Documentation
+
+- `ARCHITECTURE.md` - načítání pluginů, lifecycle, vrstvy hry, template pro novou hru
+- `CONTRIBUTING.md` - dev setup, testy, coding style, contribution workflow
+- `CHANGELOG.md` - verze a změny
+
 ## Co v aplikaci je
 
 - Plugin architektura her (`games/<hra>/plugin.py`)
