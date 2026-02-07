@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
-from typing import Callable, Protocol, Optional, Dict, Any, List, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
 
 from PySide6.QtWidgets import QWidget
 
@@ -47,6 +47,7 @@ class LifecycleHooks:
 @dataclass(frozen=True)
 class PluginManifest:
     """Stable plugin entrypoint contract for loader discovery."""
+
     id: str
     name: str
     description: str

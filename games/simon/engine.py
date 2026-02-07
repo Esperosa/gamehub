@@ -4,6 +4,7 @@ Simon Says / Memory Sequence Game Engine
 Classic memory game where players repeat increasingly long sequences.
 Supports multiple game modes and difficulty levels with wider color palettes.
 """
+
 from __future__ import annotations
 
 import random

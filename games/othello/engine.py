@@ -7,12 +7,12 @@ Rules:
 - If a player has no legal move, they pass
 - Game ends when both players cannot move or board is full
 """
+
 from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
-
 
 EMPTY = 0
 BLACK = 1
@@ -21,9 +21,14 @@ WHITE = -1
 BOARD_SIZE = 8
 
 DIRECTIONS = [
-    (-1, -1), (-1, 0), (-1, 1),
-    (0, -1),           (0, 1),
-    (1, -1),  (1, 0),  (1, 1),
+    (-1, -1),
+    (-1, 0),
+    (-1, 1),
+    (0, -1),
+    (0, 1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
 ]
 
 
@@ -137,9 +142,13 @@ class OthelloGame:
         return black, white
 
     def count_empty(self) -> int:
-        return sum(1 for r in range(self.size) for c in range(self.size) if self.board[r][c] == EMPTY)
+        return sum(
+            1 for r in range(self.size) for c in range(self.size) if self.board[r][c] == EMPTY
+        )
 
-    def captures_for_move(self, row: int, col: int, player: Optional[int] = None) -> List[Tuple[int, int]]:
+    def captures_for_move(
+        self, row: int, col: int, player: Optional[int] = None
+    ) -> List[Tuple[int, int]]:
         """Return list of opponent coordinates that would be flipped by this move."""
         if player is None:
             player = self.current_player
@@ -248,7 +257,9 @@ class OthelloAI:
         self._cfg = AI_SKILL_CONFIGS[self.skill]
         self.depth = max(1, depth if depth is not None else self._cfg.base_depth)
 
-    def choose_move(self, game: OthelloGame, player: Optional[int] = None) -> Optional[Tuple[int, int]]:
+    def choose_move(
+        self, game: OthelloGame, player: Optional[int] = None
+    ) -> Optional[Tuple[int, int]]:
         if player is None:
             player = game.current_player
         moves = game.valid_moves(player)
@@ -282,7 +293,9 @@ class OthelloAI:
             return max(depth, self._cfg.midgame_depth)
         return depth
 
-    def _pick_move(self, scored_moves: List[Tuple[Tuple[int, int], float]]) -> Optional[Tuple[int, int]]:
+    def _pick_move(
+        self, scored_moves: List[Tuple[Tuple[int, int], float]]
+    ) -> Optional[Tuple[int, int]]:
         if not scored_moves:
             return None
 
@@ -295,7 +308,7 @@ class OthelloAI:
         if not near_best:
             near_best = ranked[:1]
 
-        pool = near_best[:max(1, self._cfg.top_choice_count)]
+        pool = near_best[: max(1, self._cfg.top_choice_count)]
         chosen = pool[0]
 
         if len(pool) > 1 and random.random() < self._cfg.random_pick_chance:
@@ -307,7 +320,9 @@ class OthelloAI:
 
         return chosen[0]
 
-    def _search(self, game: OthelloGame, depth: int, maximizing_player: int, alpha: float, beta: float) -> float:
+    def _search(
+        self, game: OthelloGame, depth: int, maximizing_player: int, alpha: float, beta: float
+    ) -> float:
         if depth <= 0 or game.game_over:
             return self._evaluate(game, maximizing_player)
 
@@ -342,7 +357,9 @@ class OthelloAI:
                 break
         return value
 
-    def _order_moves(self, game: OthelloGame, moves: List[Tuple[int, int]], player: int) -> List[Tuple[int, int]]:
+    def _order_moves(
+        self, game: OthelloGame, moves: List[Tuple[int, int]], player: int
+    ) -> List[Tuple[int, int]]:
         corners = {(0, 0), (0, 7), (7, 0), (7, 7)}
         bad_x = {(1, 1), (1, 6), (6, 1), (6, 6)}
 
@@ -413,10 +430,22 @@ class OthelloAI:
         empties = game.count_empty()
         if empties > 36:
             # Early game: mobility + corners matter most.
-            return mobility * 2.4 + corner_score * 3.0 + x_penalty * 1.2 + edge_score * 0.8 + parity * 0.4
+            return (
+                mobility * 2.4
+                + corner_score * 3.0
+                + x_penalty * 1.2
+                + edge_score * 0.8
+                + parity * 0.4
+            )
         if empties > 14:
             # Mid game: balanced.
-            return mobility * 1.8 + corner_score * 3.2 + x_penalty * 1.4 + edge_score * 1.0 + parity * 1.0
+            return (
+                mobility * 1.8
+                + corner_score * 3.2
+                + x_penalty * 1.4
+                + edge_score * 1.0
+                + parity * 1.0
+            )
         # Late game: disk parity gets stronger.
         return mobility * 1.2 + corner_score * 3.0 + x_penalty + edge_score + parity * 2.6
 

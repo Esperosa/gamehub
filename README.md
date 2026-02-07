@@ -228,15 +228,54 @@ requirements.txt
 
 ## Build: one-file EXE (Windows)
 
+Preferovaný způsob:
+
 ```bash
-.venv\Scripts\python -m pip install pyinstaller
-.venv\Scripts\python -m PyInstaller --noconfirm --clean --onefile --windowed --name GameHub --icon hub\assets\brainhub.ico --add-data "games;games" --add-data "hub\assets;hub\assets" --hidden-import winsound --hidden-import numpy --hidden-import numba --hidden-import llvmlite --hidden-import pysat.solvers --hidden-import pysat.card --hidden-import hub.printing run.py
+.\build_exe.ps1
 ```
 
 Výstup:
 
 ```text
-dist/GameHub.exe
+dist/GameHub_v<hash>[_dirty]_allmods.exe
+```
+
+Manuální fallback:
+
+```bash
+.venv\Scripts\python -m pip install pyinstaller
+$hash = (git rev-parse --short HEAD).Trim()
+$dirty = if ((git status --porcelain).Length -gt 0) { "_dirty" } else { "" }
+$env:GAMEHUB_EXE_NAME = "GameHub_v${hash}${dirty}_allmods"
+.venv\Scripts\python -m PyInstaller --noconfirm --clean GameHub_allmods.spec
+```
+
+## Kvalita kódu
+
+Instalace dev nástrojů:
+
+```bash
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+```
+
+Lint + formatter:
+
+```bash
+.venv\Scripts\python -m ruff check .
+.venv\Scripts\python -m ruff format .
+```
+
+Typová kontrola (hub + plugin API + engine modely):
+
+```bash
+.venv\Scripts\python -m mypy
+```
+
+Pre-commit hooky:
+
+```bash
+.venv\Scripts\python -m pre_commit install
+.venv\Scripts\python -m pre_commit run --all-files
 ```
 
 ## Poznámka
