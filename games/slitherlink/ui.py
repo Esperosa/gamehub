@@ -16,7 +16,7 @@ import time
 from typing import Dict, List, Optional, Tuple, Set
 
 from PySide6.QtCore import (
-    Qt, QTimer, QRectF, QPointF, QThread, Signal, QObject
+    Qt, QTimer, QRectF, QPointF
 )
 from PySide6.QtGui import (
     QColor, QPainter, QPen, QFont, QBrush, QLinearGradient, QPainterPath
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QFrame, QMessageBox, QProgressDialog
 )
 from hub.printing import BatchPrintDialog, VariantOption, create_output_printer, draw_square_batch
+from hub.worker import WorkerHandle, run_in_worker
 
 # Import engine
 try:
@@ -123,20 +124,6 @@ def _draw_print_slitherlink(
             painter.drawText(rect, Qt.AlignCenter, str(clue))
 
     painter.restore()
-
-
-class PuzzleLoaderWorker(QObject):
-    """Worker to load puzzles in background thread."""
-    finished = Signal(object)
-    
-    def __init__(self, size: int, difficulty: str):
-        super().__init__()
-        self.size = size
-        self.difficulty = difficulty
-    
-    def run(self):
-        state = create_puzzle(self.size, self.difficulty)
-        self.finished.emit(state)
 
 
 class ConfettiParticle:
@@ -793,8 +780,8 @@ class SlitherlinkWidget(QWidget):
         self._current_size = 10
         self._current_difficulty = "medium"
         self._loading_puzzle = False
-        self._loader_thread: Optional[QThread] = None
-        self._loader_worker: Optional[PuzzleLoaderWorker] = None
+        self._loader_task: Optional[WorkerHandle] = None
+        self._loader_task_id = 0
         self._solve_timer: Optional[QTimer] = None
         
         self._setup_ui()
@@ -897,18 +884,10 @@ class SlitherlinkWidget(QWidget):
             self._solve_timer = None
 
     def _cleanup_loader_thread(self) -> None:
-        if self._loader_thread is not None:
-            if self._loader_thread.isRunning():
-                self._loader_thread.quit()
-                if not self._loader_thread.wait(1200):
-                    self._loader_thread.terminate()
-                    self._loader_thread.wait()
-            self._loader_thread.deleteLater()
-            self._loader_thread = None
-
-        if self._loader_worker is not None:
-            self._loader_worker.deleteLater()
-            self._loader_worker = None
+        self._loader_task_id += 1
+        if self._loader_task is not None:
+            self._loader_task.cancel()
+            self._loader_task = None
     
     def _button_style(self, selected: bool) -> str:
         if selected:
@@ -991,18 +970,33 @@ class SlitherlinkWidget(QWidget):
         self._board.set_loading(True, self._current_size)
         self._status.setText("Načítání...")
         self._print_btn.setEnabled(False)
-        
-        # Load in background
-        self._loader_thread = QThread()
-        self._loader_worker = PuzzleLoaderWorker(self._current_size, self._current_difficulty)
-        self._loader_worker.moveToThread(self._loader_thread)
-        
-        self._loader_thread.started.connect(self._loader_worker.run)
-        self._loader_worker.finished.connect(self._on_puzzle_loaded)
-        self._loader_worker.finished.connect(self._loader_thread.quit)
-        self._loader_thread.finished.connect(self._cleanup_loader_thread)
-        
-        self._loader_thread.start()
+
+        task_id = self._loader_task_id
+        size = self._current_size
+        difficulty = self._current_difficulty
+
+        def _generate() -> Optional[SlitherlinkState]:
+            return create_puzzle(size, difficulty)
+
+        def _done(state: Optional[SlitherlinkState]) -> None:
+            if task_id != self._loader_task_id:
+                return
+            self._loader_task = None
+            self._on_puzzle_loaded(state)
+
+        def _error(exc: Exception) -> None:
+            if task_id != self._loader_task_id:
+                return
+            self._loader_task = None
+            print(f"[Slitherlink] Puzzle load failed: {exc}")
+            self._on_puzzle_loaded(None)
+
+        self._loader_task = run_in_worker(
+            fn=_generate,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
     
     def _on_puzzle_loaded(self, state: Optional[SlitherlinkState]):
         self._loading_puzzle = False

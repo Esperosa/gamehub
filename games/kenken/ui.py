@@ -18,7 +18,6 @@ from typing import Dict, List, Optional, Tuple, Set
 
 from PySide6.QtCore import (
     Qt, QTimer, QRectF, QVariantAnimation, QEasingCurve, QPointF,
-    QThread, Signal, QObject
 )
 from PySide6.QtGui import (
     QColor, QPainter, QPen, QFont, QBrush, QLinearGradient, QPainterPath
@@ -28,6 +27,7 @@ from PySide6.QtWidgets import (
     QFrame, QMessageBox, QProgressDialog
 )
 from hub.printing import BatchPrintDialog, VariantOption, create_output_printer, draw_square_batch
+from hub.worker import WorkerHandle, run_in_worker
 
 # Import engine - works both as package and standalone
 try:
@@ -153,24 +153,6 @@ def _draw_print_kenken(
         painter.drawText(QPointF(x, y), text)
 
     painter.restore()
-
-
-class PuzzleGeneratorWorker(QObject):
-    """Worker to generate puzzles in background thread."""
-    finished = Signal(object)  # Emits KenKenState
-    
-    def __init__(self, size: int):
-        super().__init__()
-        self.size = size
-    
-    def run(self):
-        """Generate puzzle - runs in background thread."""
-        try:
-            state = create_puzzle(self.size)
-            self.finished.emit(state)
-        except Exception as e:
-            print(f"[KenKen] Generation error: {e}")
-            self.finished.emit(None)
 
 
 class ConfettiParticle:
@@ -974,8 +956,8 @@ class KenKenWidget(QWidget):
         self.hints_used = 0
         
         # Background generation
-        self._gen_thread: Optional[QThread] = None
-        self._gen_worker: Optional[PuzzleGeneratorWorker] = None
+        self._gen_task: Optional[WorkerHandle] = None
+        self._gen_task_id = 0
         self._generating = False
         
         # Initialize buttons
@@ -1019,16 +1001,11 @@ class KenKenWidget(QWidget):
             btn.setChecked(key == active)
     
     def _cleanup_gen_thread(self) -> None:
-        """Clean up previous generation thread if exists."""
-        if self._gen_thread is not None:
-            if self._gen_thread.isRunning():
-                self._gen_thread.quit()
-                self._gen_thread.wait(100)  # Wait max 100ms
-            self._gen_thread.deleteLater()
-            self._gen_thread = None
-        if self._gen_worker is not None:
-            self._gen_worker.deleteLater()
-            self._gen_worker = None
+        """Cancel previous generation task if still running."""
+        self._gen_task_id += 1
+        if self._gen_task is not None:
+            self._gen_task.cancel()
+            self._gen_task = None
     
     def new_game(self) -> None:
         # Clean up previous thread
@@ -1050,18 +1027,31 @@ class KenKenWidget(QWidget):
         self.btn_hint.setEnabled(False)
         self.btn_print.setEnabled(False)
         
-        # Create worker and thread
-        self._gen_thread = QThread()
-        self._gen_worker = PuzzleGeneratorWorker(self.size)
-        self._gen_worker.moveToThread(self._gen_thread)
-        
-        # Connect signals
-        self._gen_thread.started.connect(self._gen_worker.run)
-        self._gen_worker.finished.connect(self._on_puzzle_ready)
-        self._gen_worker.finished.connect(self._gen_thread.quit)
-        
-        # Start generation
-        self._gen_thread.start()
+        task_id = self._gen_task_id
+        size = self.size
+
+        def _generate() -> Optional[KenKenState]:
+            return create_puzzle(size)
+
+        def _done(state: Optional[KenKenState]) -> None:
+            if task_id != self._gen_task_id:
+                return
+            self._gen_task = None
+            self._on_puzzle_ready(state)
+
+        def _error(exc: Exception) -> None:
+            if task_id != self._gen_task_id:
+                return
+            self._gen_task = None
+            print(f"[KenKen] Generation error: {exc}")
+            self._on_puzzle_ready(None)
+
+        self._gen_task = run_in_worker(
+            fn=_generate,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
     
     def _on_puzzle_ready(self, state: Optional[KenKenState]) -> None:
         """Called when puzzle generation is complete."""

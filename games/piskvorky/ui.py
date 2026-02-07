@@ -18,11 +18,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Callable
-from concurrent.futures import ThreadPoolExecutor, Future
 
 from PySide6.QtCore import (
     Qt, QTimer, QRectF, QVariantAnimation, QEasingCurve, 
-    Signal, QObject, QThread, QPointF
+    QPointF
 )
 from PySide6.QtGui import (
     QColor, QPainter, QPen, QFont, QPainterPath, QBrush,
@@ -32,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QComboBox, QFrame, QSizePolicy, QStackedLayout, QGraphicsOpacityEffect
 )
+from hub.worker import WorkerHandle, run_in_worker
 
 _THIS_DIR = Path(__file__).resolve().parent
 
@@ -88,39 +88,6 @@ COLOR_X = QColor(110, 231, 255)      # Cyan for X
 COLOR_O = QColor(167, 139, 250)      # Purple for O
 COLOR_OVERLAY_BG = QColor(14, 17, 26, 230)
 COLOR_WIN_LINE = QColor(110, 231, 255, 180)
-
-
-class AIWorker(QObject):
-    """Worker for async AI computation."""
-    finished = Signal(object)  # SearchResult or int
-    
-    def __init__(self, state: GameState, bot: int, difficulty: str):
-        super().__init__()
-        self.state = state.clone()
-        self.bot = bot
-        self.difficulty = difficulty
-    
-    def run(self):
-        """Compute AI move in background thread."""
-        try:
-            if self.difficulty == "easy":
-                mv = best_move_easy(self.state)
-                score = evaluate(self.state, self.bot)
-                result = SearchResult(move=mv, score=score, depth=1)
-            elif self.difficulty == "medium":
-                mv = best_move_medium(self.state, self.bot)
-                score = evaluate(self.state, self.bot)
-                result = SearchResult(move=mv, score=score, depth=2)
-            else:
-                result = best_move_hard(self.state, self.bot)
-            
-            self.finished.emit(result)
-        except Exception as e:
-            print(f"AI Error: {e}")
-            # Fallback: return first legal move
-            moves = self.state.legal_moves()
-            if moves:
-                self.finished.emit(SearchResult(move=moves[0], score=0, depth=0))
 
 
 @dataclass
@@ -817,9 +784,9 @@ class PiskvorkyWidget(QWidget):
         self.game_over = False
         self._ai_thinking = False
 
-        # AI thread
-        self._ai_thread: Optional[QThread] = None
-        self._ai_worker: Optional[AIWorker] = None
+        # AI background task
+        self._ai_task: Optional[WorkerHandle] = None
+        self._ai_task_id = 0
 
         # Swap2 state (for 13×13)
         self.swap_enabled = False
@@ -1010,35 +977,56 @@ class PiskvorkyWidget(QWidget):
         self._ai_thinking = True
         self._update_turn_status()
         self.board.disable()
+        self._ai_task_id += 1
+        task_id = self._ai_task_id
+        state_snapshot = self.board.state.clone()
+        bot = self.bot
+        difficulty = self.difficulty
 
-        # Create worker and thread
-        self._ai_thread = QThread()
-        self._ai_worker = AIWorker(self.board.state, self.bot, self.difficulty)
-        self._ai_worker.moveToThread(self._ai_thread)
-        
-        # Connect signals - order matters!
-        self._ai_thread.started.connect(self._ai_worker.run)
-        self._ai_worker.finished.connect(self._on_ai_finished)
-        self._ai_worker.finished.connect(self._ai_thread.quit)
-        
-        # Use queued connections for cleanup to avoid race conditions
-        self._ai_thread.finished.connect(self._cleanup_ai_thread)
-        
-        self._ai_thread.start()
+        def _compute_ai() -> SearchResult:
+            try:
+                if difficulty == "easy":
+                    mv = best_move_easy(state_snapshot)
+                    score = evaluate(state_snapshot, bot)
+                    return SearchResult(move=mv, score=score, depth=1)
+                if difficulty == "medium":
+                    mv = best_move_medium(state_snapshot, bot)
+                    score = evaluate(state_snapshot, bot)
+                    return SearchResult(move=mv, score=score, depth=2)
+                return best_move_hard(state_snapshot, bot)
+            except Exception as exc:
+                print(f"AI Error: {exc}")
+                moves = state_snapshot.legal_moves()
+                if moves:
+                    return SearchResult(move=moves[0], score=0, depth=0)
+                raise
 
-    def _cleanup_ai_thread(self) -> None:
-        """Clean up AI thread after it finishes."""
-        if self._ai_worker is not None:
-            self._ai_worker.deleteLater()
-            self._ai_worker = None
-        if self._ai_thread is not None:
-            self._ai_thread.deleteLater()
-            self._ai_thread = None
+        def _done(result: SearchResult) -> None:
+            if task_id != self._ai_task_id:
+                return
+            self._ai_task = None
+            self._on_ai_finished(result)
+
+        def _error(exc: Exception) -> None:
+            if task_id != self._ai_task_id:
+                return
+            self._ai_task = None
+            self._ai_thinking = False
+            self.board.enable()
+            self._update_turn_status()
+            print(f"AI Worker failed: {exc}")
+
+        self._ai_task = run_in_worker(
+            fn=_compute_ai,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
 
     def _on_ai_finished(self, result: SearchResult) -> None:
         """Handle AI computation result."""
         self._ai_thinking = False
-        # Don't set thread/worker to None here - _cleanup_ai_thread will do it
+        self._ai_task = None
         
         if self.game_over:
             return
@@ -1050,29 +1038,16 @@ class PiskvorkyWidget(QWidget):
         self._post_move(last_bot_eval=result.score)
 
     def _stop_ai_thread(self) -> None:
-        """Stop AI thread if running. Handles cleanup synchronously."""
+        """Stop AI background task if running."""
         self._ai_thinking = False
-        
-        if self._ai_thread is not None:
-            # Disconnect signals to prevent callbacks during cleanup
-            try:
-                self._ai_thread.finished.disconnect(self._cleanup_ai_thread)
-            except RuntimeError:
-                pass  # Signal not connected
-            
-            if self._ai_thread.isRunning():
-                self._ai_thread.quit()
-                if not self._ai_thread.wait(2000):
-                    self._ai_thread.terminate()
-                    self._ai_thread.wait()
-            
-            # Manual cleanup since we disconnected the cleanup signal
-            if self._ai_worker is not None:
-                self._ai_worker.deleteLater()
-                self._ai_worker = None
-            
-            self._ai_thread.deleteLater()
-            self._ai_thread = None
+        self._ai_task_id += 1
+
+        if self._ai_task is not None:
+            self._ai_task.cancel()
+            self._ai_task = None
+
+        self.board.enable()
+        self._update_turn_status()
 
     def _post_move(self, last_bot_eval: Optional[int] = None) -> None:
         """Handle post-move logic: check winner, switch turns."""

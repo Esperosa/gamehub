@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import random
 import time
-import threading
 import importlib.util
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -28,6 +27,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 )
+from hub.worker import run_in_worker
 
 try:
     import winsound
@@ -167,11 +167,8 @@ class SimonBoard(QWidget):
         if winsound is None:
             return
 
-        # winsound.Beep is blocking, so run it off-thread.
-        threading.Thread(
-            target=lambda: winsound.Beep(freq, dur_ms),
-            daemon=True,
-        ).start()
+        # winsound.Beep is blocking, so run it via shared worker utility.
+        run_in_worker(lambda: winsound.Beep(freq, dur_ms), parent=self)
     
     def _start_anim_timer(self) -> None:
         """Start smooth animation timer."""
