@@ -28,6 +28,28 @@ pip install -r requirements.txt
 python run.py
 ```
 
+## Tester (audit run)
+
+Pro jednotný audit všech her je k dispozici skript `tester.py`.
+
+```bash
+python tester.py
+```
+
+Volitelné režimy:
+
+```bash
+python tester.py --tests-only
+python tester.py --plugins-only
+python tester.py --adapters-only
+```
+
+`tester.py` automaticky:
+- objeví pluginy v `games/`
+- provede smoke kontrolu widgetu + lifecycle hooků
+- spustí unit testy z `tests/`
+- umí načíst i nové game-specific adaptéry přes `games/<game>/tester.py` s funkcí `run_audit()`
+
 ## Tisk a PDF (Sudoku, KenKen, Slitherlink)
 
 V hrách `sudoku`, `kenken` a `slitherlink` je tlačítko `Tisk/PDF` pro dávkové generování tisknutelných úloh.
