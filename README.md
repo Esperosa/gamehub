@@ -26,21 +26,47 @@ Desktop aplikace v Pythonu (PySide6), která sdružuje více logických her do j
 
 ## Screenshots
 
-| Home | 2048 |
+Aktuální screenshoty jsou generované z **lokální aktuální verze** přes `scripts/capture_screenshots.py`.
+Každá hra je otevřená v hubu, rozehraná a pořízená ve stavu, kde jsou vidět všechny hlavní UI prvky.
+
+Regenerace screenshotů:
+
+```bash
+.venv\Scripts\python scripts/capture_screenshots.py
+```
+
+Skript automaticky:
+- otevře hub + všechny hry z aktuálního lokálního stromu,
+- počká na dokončení async načítání puzzle,
+- provede minimální rozehrání (hint/tah),
+- ověří, že obrázky nejsou prázdné a mají validní rozměr.
+
+| Hub | 2048 |
 |---|---|
-| ![Home](docs/media/home.png) | ![2048](docs/media/game2048.png) |
+| ![Hub](docs/media/home.png) | ![2048](docs/media/game2048.png) |
 
 | KenKen | Mastermind |
 |---|---|
 | ![KenKen](docs/media/kenken.png) | ![Mastermind](docs/media/mastermind.png) |
 
-| Othello | Piškvorky |
+| Nonogram | Othello |
 |---|---|
-| ![Othello](docs/media/othello.png) | ![Piskvorky](docs/media/piskvorky.png) |
+| ![Nonogram](docs/media/nonogram.png) | ![Othello](docs/media/othello.png) |
+
+| Piškvorky | Simon |
+|---|---|
+| ![Piskvorky](docs/media/piskvorky.png) | ![Simon](docs/media/simon.png) |
 
 | Slitherlink | Sudoku |
 |---|---|
 | ![Slitherlink](docs/media/slitherlink.png) | ![Sudoku](docs/media/sudoku.png) |
+
+## Licence a autor
+
+- Licence: [MIT](LICENSE)
+- Copyright: `© 2026 BeakOverPink (Esperosa)`
+- Maintainer: [@Esperosa](https://github.com/Esperosa)
+- Právní metadata: `LICENSE`, `NOTICE`
 
 ## Documentation
 
