@@ -226,28 +226,59 @@ requirements.txt
 2. Přidej `plugin.py`
 3. V `plugin.py` exportuj proměnnou `plugin` kompatibilní s `hub.plugin_api.BaseGamePlugin`
 
-## Build: one-file EXE (Windows)
+## Build a Release Artifact
 
-Preferovaný způsob:
-
-```bash
-.\build_exe.ps1
-```
-
-Výstup:
-
-```text
-dist/GameHub_v<hash>[_dirty]_allmods.exe
-```
-
-Manuální fallback:
+Windows:
 
 ```bash
-.venv\Scripts\python -m pip install pyinstaller
-$hash = (git rev-parse --short HEAD).Trim()
-$dirty = if ((git status --porcelain).Length -gt 0) { "_dirty" } else { "" }
-$env:GAMEHUB_EXE_NAME = "GameHub_v${hash}${dirty}_allmods"
-.venv\Scripts\python -m PyInstaller --noconfirm --clean GameHub_allmods.spec
+.\scripts\build_windows.ps1 -Version v1.2.3
+```
+
+Linux:
+
+```bash
+bash ./scripts/build_linux.sh v1.2.3
+```
+
+Výstup (`dist/`):
+- binární artefakt (`.exe` na Windows, ELF binárka na Linuxu)
+- archiv (`.zip` nebo `.tar.gz`)
+- checksum soubor (`SHA256SUMS_windows.txt` / `SHA256SUMS_linux.txt`)
+
+Kompatibilní wrapper (legacy):
+
+```bash
+.\build_exe.ps1 -Version v1.2.3
+```
+
+## Packaging a Release
+
+1. Označ release tag:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+2. GitHub Actions workflow `.github/workflows/release.yml` automaticky:
+- sestaví Windows + Linux artefakty,
+- spočítá SHA256 checksumy,
+- publikuje GitHub Release s přílohami (`.exe`, `.zip`, `.tar.gz`, `SHA256SUMS.txt`).
+
+3. Ověření checksumu po stažení:
+
+```bash
+sha256sum -c SHA256SUMS.txt
+```
+
+## Reproducible Build
+
+- Runtime/build závislosti jsou zamknuté v `requirements-lock.txt`.
+- Zdroj pro lock: `requirements-build.in`.
+- Regenerace locku:
+
+```bash
+.venv\Scripts\python -m piptools compile requirements-build.in --output-file requirements-lock.txt --generate-hashes --allow-unsafe
 ```
 
 ## Kvalita kódu
