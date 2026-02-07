@@ -242,110 +242,272 @@ class LineSolver:
 
 
 class NonogramSolver:
-    """Solver for complete Nonogram puzzles using constraint propagation."""
-    
+    """Solver for complete Nonogram puzzles with auditable search pipeline."""
+
+    @dataclass(frozen=True)
+    class PropagationResult:
+        changed: bool
+        consistent: bool
+
+        def __bool__(self) -> bool:
+            return self.changed and self.consistent
+
+    @dataclass(frozen=True)
+    class ConstraintModel:
+        row_solvers: List[LineSolver]
+        col_solvers: List[LineSolver]
+
     def __init__(self, state: NonogramState):
         self.state = state
         self.puzzle = state.puzzle
-    
-    def propagate(self) -> bool:
+
+    def _clone_state(self, state: NonogramState) -> NonogramState:
+        return NonogramState(
+            puzzle=state.puzzle,
+            grid=[row[:] for row in state.grid],
+        )
+
+    def _cell_domain(self, state: NonogramState, row: int, col: int) -> List[int]:
+        if state.grid[row][col] != 0:
+            return [state.grid[row][col]]
+
+        domain: List[int] = []
+        for guess in (1, -1):
+            state.grid[row][col] = guess
+            row_ok = state.check_row_valid(row)
+            col_ok = state.check_col_valid(col)
+            state.grid[row][col] = 0
+            if row_ok and col_ok:
+                domain.append(guess)
+        return domain
+
+    def parse(self, state: Optional[NonogramState] = None) -> NonogramState:
+        """Validate solver input and return a normalized state object."""
+        parsed = state or self.state
+        puzzle = parsed.puzzle
+
+        if puzzle.width <= 0 or puzzle.height <= 0:
+            raise ValueError("Puzzle dimensions must be positive.")
+        if len(parsed.grid) != puzzle.height:
+            raise ValueError("Grid height does not match puzzle height.")
+
+        for row in parsed.grid:
+            if len(row) != puzzle.width:
+                raise ValueError("Grid width does not match puzzle width.")
+            for value in row:
+                if value not in (-1, 0, 1):
+                    raise ValueError(f"Unsupported cell value: {value}")
+
+        if len(puzzle.row_clues) != puzzle.height or len(puzzle.col_clues) != puzzle.width:
+            raise ValueError("Clue dimensions do not match puzzle dimensions.")
+
+        for clue in puzzle.row_clues + puzzle.col_clues:
+            if clue == [0] or clue == []:
+                continue
+            if any((not isinstance(v, int)) or v <= 0 for v in clue):
+                raise ValueError(f"Invalid clue values: {clue}")
+
+        return parsed
+
+    def encode_constraints(self, state: Optional[NonogramState] = None) -> "NonogramSolver.ConstraintModel":
+        """Build reusable per-line solvers from puzzle clues."""
+        parsed = self.parse(state)
+        puzzle = parsed.puzzle
+
+        row_solvers = [LineSolver(puzzle.width, clue) for clue in puzzle.row_clues]
+        col_solvers = [LineSolver(puzzle.height, clue) for clue in puzzle.col_clues]
+
+        assert len(row_solvers) == puzzle.height
+        assert len(col_solvers) == puzzle.width
+
+        return NonogramSolver.ConstraintModel(
+            row_solvers=row_solvers,
+            col_solvers=col_solvers,
+        )
+
+    def propagate(
+        self,
+        state: Optional[NonogramState] = None,
+        constraints: Optional["NonogramSolver.ConstraintModel"] = None,
+    ) -> "NonogramSolver.PropagationResult":
         """
-        Apply constraint propagation to determine definite cells.
-        Returns True if any progress was made.
+        Apply one propagation round.
+
+        Returns `PropagationResult(changed, consistent)` where:
+        - `changed=True` means new cells were fixed
+        - `consistent=False` means a contradiction was found
         """
+        work_state = self.parse(state)
+        model = constraints or self.encode_constraints(work_state)
+        puzzle = work_state.puzzle
         changed = False
-        
-        # Process all rows
-        for row in range(self.puzzle.height):
-            line = self.state.get_row(row)
-            solver = LineSolver(self.puzzle.width, self.puzzle.row_clues[row])
-            result = solver.solve(line)
-            
+
+        for row in range(puzzle.height):
+            line = work_state.get_row(row)
+            result = model.row_solvers[row].solve(line)
             if result is None:
-                return False  # Contradiction
-            
-            for col in range(self.puzzle.width):
-                if result[col] != 0 and self.state.grid[row][col] == 0:
-                    self.state.grid[row][col] = result[col]
+                return NonogramSolver.PropagationResult(changed=False, consistent=False)
+
+            for col in range(puzzle.width):
+                current = work_state.grid[row][col]
+                proposed = result[col]
+                if proposed == 0:
+                    continue
+                if current != 0 and current != proposed:
+                    return NonogramSolver.PropagationResult(changed=False, consistent=False)
+                if current == 0:
+                    work_state.grid[row][col] = proposed
                     changed = True
-        
-        # Process all columns
-        for col in range(self.puzzle.width):
-            line = self.state.get_col(col)
-            solver = LineSolver(self.puzzle.height, self.puzzle.col_clues[col])
-            result = solver.solve(line)
-            
+
+            if not work_state.check_row_valid(row):
+                return NonogramSolver.PropagationResult(changed=False, consistent=False)
+
+        for col in range(puzzle.width):
+            line = work_state.get_col(col)
+            result = model.col_solvers[col].solve(line)
             if result is None:
-                return False  # Contradiction
-            
-            for row in range(self.puzzle.height):
-                if result[row] != 0 and self.state.grid[row][col] == 0:
-                    self.state.grid[row][col] = result[row]
+                return NonogramSolver.PropagationResult(changed=False, consistent=False)
+
+            for row in range(puzzle.height):
+                current = work_state.grid[row][col]
+                proposed = result[row]
+                if proposed == 0:
+                    continue
+                if current != 0 and current != proposed:
+                    return NonogramSolver.PropagationResult(changed=False, consistent=False)
+                if current == 0:
+                    work_state.grid[row][col] = proposed
                     changed = True
-        
-        return changed
-    
-    def solve(self) -> Optional[NonogramState]:
+
+            if not work_state.check_col_valid(col):
+                return NonogramSolver.PropagationResult(changed=False, consistent=False)
+
+        return NonogramSolver.PropagationResult(changed=changed, consistent=True)
+
+    def select_var(
+        self,
+        state: NonogramState,
+        constraints: Optional["NonogramSolver.ConstraintModel"] = None,
+    ) -> Optional[Tuple[int, int]]:
         """
-        Fully solve the puzzle using constraint propagation.
-        Returns solved state or None if unsolvable.
+        Pick the next unknown cell to branch on using smallest-domain heuristic.
+        Returns `(row, col)` or `None` if no unknown cells remain.
         """
-        import copy
-        
-        # Apply propagation until no more progress
+        self.parse(state)
+        best_cell: Optional[Tuple[int, int]] = None
+        best_domain_size = 3
+
+        for row in range(state.puzzle.height):
+            for col in range(state.puzzle.width):
+                if state.grid[row][col] != 0:
+                    continue
+                domain = self._cell_domain(state, row, col)
+                if not domain:
+                    return (row, col)
+                if len(domain) < best_domain_size:
+                    best_cell = (row, col)
+                    best_domain_size = len(domain)
+                    if best_domain_size == 1:
+                        return best_cell
+
+        return best_cell
+
+    def search(
+        self,
+        state: NonogramState,
+        constraints: Optional["NonogramSolver.ConstraintModel"] = None,
+        depth: int = 0,
+    ) -> Optional[NonogramState]:
+        """Depth-first search with propagation and early contradiction detection."""
+        work_state = self.parse(state)
+        model = constraints or self.encode_constraints(work_state)
+        max_depth = work_state.puzzle.width * work_state.puzzle.height + 1
+        if depth > max_depth:
+            return None
+
         while True:
-            progress = self.propagate()
-            if not progress:
+            step = self.propagate(work_state, model)
+            if not step.consistent:
+                return None
+            if not step.changed:
                 break
-        
-        # Check if solved
-        if all(self.state.grid[r][c] != 0 
-               for r in range(self.puzzle.height) 
-               for c in range(self.puzzle.width)):
-            return self.state
-        
-        # Need to guess - find first unknown cell
-        for row in range(self.puzzle.height):
-            for col in range(self.puzzle.width):
-                if self.state.grid[row][col] == 0:
-                    # Try filled first
-                    for guess in [1, -1]:
-                        state_copy = NonogramState(
-                            puzzle=self.puzzle,
-                            grid=[r[:] for r in self.state.grid]
-                        )
-                        state_copy.grid[row][col] = guess
-                        
-                        solver = NonogramSolver(state_copy)
-                        result = solver.solve()
-                        if result is not None:
-                            return result
-                    
-                    return None  # Both guesses failed
-        
+
+        if self.validate_solution(work_state):
+            return work_state
+
+        choice = self.select_var(work_state, model)
+        if choice is None:
+            return None
+
+        row, col = choice
+        domain = self._cell_domain(work_state, row, col)
+        if not domain:
+            return None
+
+        for guess in domain:
+            candidate = self._clone_state(work_state)
+            candidate.grid[row][col] = guess
+            solved = self.search(candidate, model, depth + 1)
+            if solved is not None:
+                return solved
+
+        return None
+
+    def validate_solution(self, state: NonogramState) -> bool:
+        """Validate final state against clues with no unknown cells left."""
+        self.parse(state)
+
+        for row in state.grid:
+            if any(cell == 0 for cell in row):
+                return False
+
+        for row in range(state.puzzle.height):
+            if not state._line_matches_clue(state.get_row(row), state.puzzle.row_clues[row]):
+                return False
+        for col in range(state.puzzle.width):
+            if not state._line_matches_clue(state.get_col(col), state.puzzle.col_clues[col]):
+                return False
+
+        return True
+
+    def solve(self) -> Optional[NonogramState]:
+        """Fully solve the puzzle using parse/propagate/search pipeline."""
+        base_state = self.parse()
+        model = self.encode_constraints(base_state)
+        solved = self.search(self._clone_state(base_state), model, depth=0)
+        if solved is None:
+            return None
+
+        self.state.grid = [row[:] for row in solved.grid]
         return self.state
-    
+
     def get_hint(self) -> Optional[Tuple[int, int, int]]:
         """
-        Get a hint: returns (row, col, value) for a cell that can be determined.
-        Returns None if no hint available.
+        Get one hint as `(row, col, value)`.
+        First tries one propagation round; if no progress, falls back to full search.
         """
-        # Apply one round of propagation on a copy
-        import copy
-        state_copy = NonogramState(
-            puzzle=self.puzzle,
-            grid=[r[:] for r in self.state.grid]
-        )
-        
-        solver = NonogramSolver(state_copy)
-        solver.propagate()
-        
-        # Find first cell that was determined
-        for row in range(self.puzzle.height):
-            for col in range(self.puzzle.width):
-                if self.state.grid[row][col] == 0 and state_copy.grid[row][col] != 0:
+        base_state = self.parse()
+        state_copy = self._clone_state(base_state)
+        model = self.encode_constraints(state_copy)
+        step = self.propagate(state_copy, model)
+
+        if not step.consistent:
+            return None
+
+        for row in range(base_state.puzzle.height):
+            for col in range(base_state.puzzle.width):
+                if base_state.grid[row][col] == 0 and state_copy.grid[row][col] != 0:
                     return (row, col, state_copy.grid[row][col])
-        
+
+        solved = self.search(self._clone_state(base_state), model, depth=0)
+        if solved is None:
+            return None
+
+        for row in range(base_state.puzzle.height):
+            for col in range(base_state.puzzle.width):
+                if base_state.grid[row][col] == 0 and solved.grid[row][col] != 0:
+                    return (row, col, solved.grid[row][col])
+
         return None
 
 

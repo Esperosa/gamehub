@@ -1278,173 +1278,239 @@ class SlitherlinkSolver:
 
 
 def solve_with_sat(state: SlitherlinkState) -> Optional[SlitherlinkState]:
-    """Solve Slitherlink using SAT solver with iterative loop detection."""
-    import copy
-    from itertools import combinations
-    
-    try:
-        from pysat.solvers import Solver
-        from pysat.card import CardEnc, EncType
-    except ImportError:
-        return None  # SAT solver not available
-    
-    puzzle = state.puzzle
-    h_rows, h_cols = puzzle.h_edges_shape
-    v_rows, v_cols = puzzle.v_edges_shape
-    
-    # Create variable mapping
-    # h_edge[r][c] -> variable 1 + r*h_cols + c
-    # v_edge[r][c] -> variable 1 + h_rows*h_cols + r*v_cols + c
-    
-    def h_var(r: int, c: int) -> int:
-        return 1 + r * h_cols + c
-    
-    def v_var(r: int, c: int) -> int:
-        return 1 + h_rows * h_cols + r * v_cols + c
-    
-    max_var = h_rows * h_cols + v_rows * v_cols
-    
-    # Get edges at a vertex
-    def edges_at_vertex(vr: int, vc: int) -> List[int]:
-        edges = []
-        # Left horizontal
-        if vc > 0 and vr < h_rows:
-            edges.append(h_var(vr, vc - 1))
-        # Right horizontal
-        if vc < puzzle.width and vr < h_rows:
-            edges.append(h_var(vr, vc))
-        # Top vertical
-        if vr > 0 and vc < v_cols:
-            edges.append(v_var(vr - 1, vc))
-        # Bottom vertical
-        if vr < puzzle.height and vc < v_cols:
-            edges.append(v_var(vr, vc))
+    """Solve Slitherlink using SAT search pipeline."""
+    return _SatSlitherlinkSearch(state).search()
+
+
+class _SatSlitherlinkSearch:
+    @dataclass(frozen=True)
+    class Encoding:
+        clauses: List[List[int]]
+        max_var: int
+
+    def __init__(self, state: SlitherlinkState):
+        self.state = state
+        self.puzzle = state.puzzle
+        self.h_rows, self.h_cols = self.puzzle.h_edges_shape
+        self.v_rows, self.v_cols = self.puzzle.v_edges_shape
+
+        try:
+            from pysat.solvers import Solver  # type: ignore
+            from pysat.card import CardEnc, EncType  # type: ignore
+            self._Solver = Solver
+            self._CardEnc = CardEnc
+            self._EncType = EncType
+            self._sat_available = True
+        except ImportError:
+            self._sat_available = False
+            self._Solver = None
+            self._CardEnc = None
+            self._EncType = None
+
+    def h_var(self, r: int, c: int) -> int:
+        return 1 + r * self.h_cols + c
+
+    def v_var(self, r: int, c: int) -> int:
+        return 1 + self.h_rows * self.h_cols + r * self.v_cols + c
+
+    def parse(self) -> Optional[SlitherlinkState]:
+        """Validate state shape and edge value domain before SAT encoding."""
+        if not self._sat_available:
+            return None
+
+        if len(self.state.h_edges) != self.h_rows:
+            return None
+        if len(self.state.v_edges) != self.v_rows:
+            return None
+
+        for row in self.state.h_edges:
+            if len(row) != self.h_cols:
+                return None
+            for value in row:
+                if value not in (-1, 0, 1):
+                    return None
+
+        for row in self.state.v_edges:
+            if len(row) != self.v_cols:
+                return None
+            for value in row:
+                if value not in (-1, 0, 1):
+                    return None
+
+        if len(self.puzzle.clues) != self.puzzle.height:
+            return None
+        for row in self.puzzle.clues:
+            if len(row) != self.puzzle.width:
+                return None
+            for clue in row:
+                if clue is not None and (clue < 0 or clue > 3):
+                    return None
+
+        return self.state
+
+    def _edges_at_vertex(self, vr: int, vc: int) -> List[int]:
+        edges: List[int] = []
+        if vc > 0 and vr < self.h_rows:
+            edges.append(self.h_var(vr, vc - 1))
+        if vc < self.puzzle.width and vr < self.h_rows:
+            edges.append(self.h_var(vr, vc))
+        if vr > 0 and vc < self.v_cols:
+            edges.append(self.v_var(vr - 1, vc))
+        if vr < self.puzzle.height and vc < self.v_cols:
+            edges.append(self.v_var(vr, vc))
         return edges
-    
-    # Get edges around a cell
-    def edges_around_cell(r: int, c: int) -> List[int]:
+
+    def _edges_around_cell(self, r: int, c: int) -> List[int]:
         return [
-            h_var(r, c),      # top
-            h_var(r + 1, c),  # bottom
-            v_var(r, c),      # left
-            v_var(r, c + 1),  # right
+            self.h_var(r, c),
+            self.h_var(r + 1, c),
+            self.v_var(r, c),
+            self.v_var(r, c + 1),
         ]
-    
-    # Build clauses
-    clauses = []
-    
-    # Clue constraints: exactly N edges around cell
-    for r in range(puzzle.height):
-        for c in range(puzzle.width):
-            clue = puzzle.clues[r][c]
-            if clue is not None:
-                cell_edges = edges_around_cell(r, c)
-                # Use cardinality encoding for exactly N
-                enc = CardEnc.equals(lits=cell_edges, bound=clue, top_id=max_var, encoding=EncType.seqcounter)
-                max_var = max(max_var, max(abs(l) for cl in enc.clauses for l in cl) if enc.clauses else max_var)
+
+    def encode_constraints(self) -> Optional["_SatSlitherlinkSearch.Encoding"]:
+        """Encode clues + degree constraints + fixed edges into CNF clauses."""
+        from itertools import combinations
+
+        parsed = self.parse()
+        if parsed is None:
+            return None
+
+        max_var = self.h_rows * self.h_cols + self.v_rows * self.v_cols
+        clauses: List[List[int]] = []
+
+        for r in range(self.puzzle.height):
+            for c in range(self.puzzle.width):
+                clue = self.puzzle.clues[r][c]
+                if clue is None:
+                    continue
+                cell_edges = self._edges_around_cell(r, c)
+                enc = self._CardEnc.equals(
+                    lits=cell_edges,
+                    bound=clue,
+                    top_id=max_var,
+                    encoding=self._EncType.seqcounter,
+                )
+                if enc.clauses:
+                    max_in_enc = max(abs(lit) for cl in enc.clauses for lit in cl)
+                    max_var = max(max_var, max_in_enc)
                 clauses.extend(enc.clauses)
-    
-    # Vertex constraints: degree 0 or 2 at each vertex
-    for vr in range(puzzle.height + 1):
-        for vc in range(puzzle.width + 1):
-            v_edges = edges_at_vertex(vr, vc)
-            if len(v_edges) < 2:
-                # Boundary vertex with <2 edges: must be degree 0
-                for e in v_edges:
-                    clauses.append([-e])
-            else:
-                # Degree can be 0, 2 (not 1, 3, 4)
-                # Forbid degree 1 and 3+
-                
-                # Forbid exactly 1: at least one pair must both be present, or none
-                # For each single edge, if it's on, at least one other must be on
-                for e in v_edges:
-                    others = [x for x in v_edges if x != e]
-                    # e -> (o1 OR o2 OR ...)
-                    clauses.append([-e] + others)
-                
-                # Forbid degree 3+: each triple cannot all be true
+
+        for vr in range(self.puzzle.height + 1):
+            for vc in range(self.puzzle.width + 1):
+                v_edges = self._edges_at_vertex(vr, vc)
+                if len(v_edges) < 2:
+                    for edge in v_edges:
+                        clauses.append([-edge])
+                    continue
+
+                for edge in v_edges:
+                    others = [x for x in v_edges if x != edge]
+                    clauses.append([-edge] + others)
+
                 for triple in combinations(v_edges, 3):
                     clauses.append([-triple[0], -triple[1], -triple[2]])
-    
-    # Add constraints from current state (fixed edges)
-    for r in range(len(state.h_edges)):
-        for c in range(len(state.h_edges[0])):
-            if state.h_edges[r][c] == 1:
-                clauses.append([h_var(r, c)])
-            elif state.h_edges[r][c] == -1:
-                clauses.append([-h_var(r, c)])
-    
-    for r in range(len(state.v_edges)):
-        for c in range(len(state.v_edges[0])):
-            if state.v_edges[r][c] == 1:
-                clauses.append([v_var(r, c)])
-            elif state.v_edges[r][c] == -1:
-                clauses.append([-v_var(r, c)])
-    
-    # Iteratively solve and add loop-breaking constraints
-    max_iterations = 100
-    for iteration in range(max_iterations):
-        solver = Solver(name='g3')
-        for cl in clauses:
-            solver.add_clause(cl)
-        
+
+        for r in range(self.h_rows):
+            for c in range(self.h_cols):
+                if parsed.h_edges[r][c] == 1:
+                    clauses.append([self.h_var(r, c)])
+                elif parsed.h_edges[r][c] == -1:
+                    clauses.append([-self.h_var(r, c)])
+
+        for r in range(self.v_rows):
+            for c in range(self.v_cols):
+                if parsed.v_edges[r][c] == 1:
+                    clauses.append([self.v_var(r, c)])
+                elif parsed.v_edges[r][c] == -1:
+                    clauses.append([-self.v_var(r, c)])
+
+        return _SatSlitherlinkSearch.Encoding(clauses=clauses, max_var=max_var)
+
+    def propagate(self, encoding: "_SatSlitherlinkSearch.Encoding") -> Optional[Set[int]]:
+        """Run one SAT solve step and return positive literals from the model."""
+        solver = self._Solver(name="g3")
+        for clause in encoding.clauses:
+            solver.add_clause(clause)
+
         if not solver.solve():
             solver.delete()
             return None
-        
-        model = solver.get_model()
+
+        model = solver.get_model() or []
         solver.delete()
-        
-        # Build set of true variables for easy lookup
-        true_vars = set(v for v in model if v > 0)
-        
-        # Extract solution
-        result = copy.deepcopy(state)
-        for r in range(len(result.h_edges)):
-            for c in range(len(result.h_edges[0])):
-                var = h_var(r, c)
-                result.h_edges[r][c] = 1 if var in true_vars else 0
-        
-        for r in range(len(result.v_edges)):
-            for c in range(len(result.v_edges[0])):
-                var = v_var(r, c)
-                result.v_edges[r][c] = 1 if var in true_vars else 0
-        
-        # Check if it's a single loop
-        complete, msg = result.is_complete()
-        if complete:
-            return result
-        
-        # Find components and add constraint to break multiple loops
-        lines = result._collect_lines()
+        return {v for v in model if v > 0}
+
+    def _decode_model(self, true_vars: Set[int]) -> SlitherlinkState:
+        import copy
+
+        result = copy.deepcopy(self.state)
+        for r in range(self.h_rows):
+            for c in range(self.h_cols):
+                result.h_edges[r][c] = 1 if self.h_var(r, c) in true_vars else 0
+
+        for r in range(self.v_rows):
+            for c in range(self.v_cols):
+                result.v_edges[r][c] = 1 if self.v_var(r, c) in true_vars else 0
+
+        return result
+
+    def select_var(self, candidate: SlitherlinkState) -> Optional[List[int]]:
+        """Build a blocking clause for one loop component to force change."""
+        lines = candidate._collect_lines()
         if not lines:
             return None
-        
+
         components = _find_components(lines)
-        if len(components) == 1:
-            # Single component but not complete (maybe empty areas?)
-            # This shouldn't happen if is_complete works correctly
-            return result
-        
-        # Add constraint: at least one edge between components must change
-        # Pick the smaller component and require at least one of its edges to be different
-        smallest = min(components, key=lambda c: len(c))
-        blocking = []
+        if len(components) <= 1:
+            return None
+
+        smallest = min(components, key=lambda comp: len(comp))
+        blocking: List[int] = []
         for v1, v2 in smallest:
-            # Find the edge variable
-            if v1[0] == v2[0]:  # horizontal
+            if v1[0] == v2[0]:
                 r = v1[0]
                 c = min(v1[1], v2[1])
-                blocking.append(-h_var(r, c))
-            else:  # vertical
+                blocking.append(-self.h_var(r, c))
+            else:
                 c = v1[1]
                 r = min(v1[0], v2[0])
-                blocking.append(-v_var(r, c))
-        
-        clauses.append(blocking)
-    
-    return None
+                blocking.append(-self.v_var(r, c))
+
+        return blocking if blocking else None
+
+    def validate_solution(self, candidate: SlitherlinkState) -> bool:
+        complete, _ = candidate.is_complete()
+        return bool(complete)
+
+    def search(self, max_iterations: int = 100) -> Optional[SlitherlinkState]:
+        """Iterative SAT solving with loop-component blocking search."""
+        encoding = self.encode_constraints()
+        if encoding is None:
+            return None
+
+        clauses = [clause[:] for clause in encoding.clauses]
+        for _ in range(max_iterations):
+            step_encoding = _SatSlitherlinkSearch.Encoding(clauses=clauses, max_var=encoding.max_var)
+            true_vars = self.propagate(step_encoding)
+            if true_vars is None:
+                return None
+
+            candidate = self._decode_model(true_vars)
+            if self.validate_solution(candidate):
+                return candidate
+
+            if not candidate._collect_lines():
+                return None
+
+            blocking = self.select_var(candidate)
+            if blocking is None:
+                # Preserve prior behavior for unusual single-component non-complete models.
+                return candidate
+
+            clauses.append(blocking)
+
+        return None
 
 
 def _find_components(lines: Set[Tuple[Tuple[int, int], Tuple[int, int]]]) -> List[Set]:

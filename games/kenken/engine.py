@@ -746,6 +746,11 @@ class KenKenState:
 
 class KenKenSolver:
     """Fast constraint propagation solver with precomputed possibilities."""
+
+    @dataclass(frozen=True)
+    class PropagationResult:
+        changed: bool
+        consistent: bool
     
     def __init__(self, config: KenKenConfig, cages: List[Cage]):
         self.config = config
@@ -764,6 +769,132 @@ class KenKenSolver:
         # Precompute cage possibilities
         for cage in cages:
             cage.get_possibilities(self.n)
+
+    def parse(self, board: List[int]) -> List[int]:
+        """Validate and normalize board input for the solver pipeline."""
+        expected_len = self.n * self.n
+        if len(board) != expected_len:
+            raise ValueError(f"Board length must be {expected_len}, got {len(board)}")
+
+        parsed = [int(v) for v in board]
+        for v in parsed:
+            if v < 0 or v > self.n:
+                raise ValueError(f"Cell value out of range: {v}")
+
+        for r in range(self.n):
+            seen: Set[int] = set()
+            for c in range(self.n):
+                val = parsed[r * self.n + c]
+                if val == 0:
+                    continue
+                if val in seen:
+                    raise ValueError(f"Duplicate fixed value {val} in row {r}")
+                seen.add(val)
+
+        for c in range(self.n):
+            seen = set()
+            for r in range(self.n):
+                val = parsed[r * self.n + c]
+                if val == 0:
+                    continue
+                if val in seen:
+                    raise ValueError(f"Duplicate fixed value {val} in column {c}")
+                seen.add(val)
+
+        for cage in self.cages:
+            vals = [parsed[r * self.n + c] for r, c in cage.cells]
+            if not cage.partial_check(vals):
+                raise ValueError("Fixed values violate cage constraints")
+
+        return parsed
+
+    def encode_constraints(self, board: List[int]) -> List[int]:
+        """Create initial candidate bitmasks from parsed board."""
+        candidates = self._init_candidates()
+        for idx, val in enumerate(board):
+            if val != 0:
+                candidates[idx] = 1 << val
+        return candidates
+
+    def propagate(self, board: List[int], candidates: List[int]) -> "KenKenSolver.PropagationResult":
+        """Run propagation and return explicit status."""
+        before_board = board.copy()
+        before_candidates = candidates.copy()
+        consistent = self._propagate(candidates, board)
+        changed = (board != before_board) or (candidates != before_candidates)
+        return KenKenSolver.PropagationResult(changed=changed, consistent=consistent)
+
+    def select_var(self, board: List[int], candidates: List[int]) -> Optional[int]:
+        """Select unfilled cell with the minimum remaining values (MRV)."""
+        best_cell = -1
+        min_count = self.n + 2
+
+        for idx in range(self.n * self.n):
+            if board[idx] != 0:
+                continue
+            cnt = self._count_bits(candidates[idx])
+            if cnt == 0:
+                return idx
+            if cnt < min_count:
+                min_count = cnt
+                best_cell = idx
+                if cnt == 1:
+                    break
+
+        return None if best_cell < 0 else best_cell
+
+    def search(self, board: List[int], candidates: List[int], depth: int = 0) -> bool:
+        """Depth-first search with propagation and MRV branching."""
+        if depth > self.n * self.n + 1:
+            return False
+
+        step = self.propagate(board, candidates)
+        if not step.consistent:
+            return False
+
+        cell = self.select_var(board, candidates)
+        if cell is None:
+            return self.validate_solution(board)
+
+        mask = candidates[cell]
+        if mask == 0:
+            return False
+
+        for val in range(1, self.n + 1):
+            if not (mask & (1 << val)):
+                continue
+
+            next_board = board.copy()
+            next_candidates = candidates.copy()
+            next_board[cell] = val
+            next_candidates[cell] = 1 << val
+
+            if self.search(next_board, next_candidates, depth + 1):
+                board[:] = next_board
+                candidates[:] = next_candidates
+                return True
+
+        return False
+
+    def validate_solution(self, board: List[int]) -> bool:
+        """Validate solved board against Latin and cage constraints."""
+        if len(board) != self.n * self.n:
+            return False
+        if any(v == 0 for v in board):
+            return False
+
+        expected = set(range(1, self.n + 1))
+        for r in range(self.n):
+            row_vals = board[r * self.n:(r + 1) * self.n]
+            if set(row_vals) != expected:
+                return False
+
+        for c in range(self.n):
+            col_vals = [board[r * self.n + c] for r in range(self.n)]
+            if set(col_vals) != expected:
+                return False
+
+        return self._verify_cage_constraints(board)
     
     def _init_candidates(self) -> List[int]:
         """Initialize candidate bitmasks. Each cell has bits 1-N set."""
@@ -1023,57 +1154,29 @@ class KenKenSolver:
         return False
     
     def solve(self, board: List[int]) -> Optional[List[int]]:
-        """Solve the puzzle."""
-        board = board.copy()
-        candidates = self._init_candidates()
-        
-        if not self._propagate(candidates, board):
+        """Solve via parse/encode_constraints/propagate/select_var/search/validate_solution."""
+        try:
+            work_board = self.parse(board)
+        except ValueError:
             return None
-        
-        if self._solve_fast(board, candidates):
-            return board
-        return None
-    
+
+        candidates = self.encode_constraints(work_board)
+        if not self.search(work_board, candidates, depth=0):
+            return None
+        if not self.validate_solution(work_board):
+            return None
+        return work_board
+
     def _solve_fast(self, board: List[int], candidates: List[int]) -> bool:
-        """Fast solving with propagation."""
-        n = self.n
-        
-        # Find cell with fewest candidates
-        best_cell = -1
-        min_count = n + 2
-        
-        for i in range(n * n):
-            if board[i] == 0:
-                cnt = self._count_bits(candidates[i])
-                if cnt == 0:
-                    return False
-                if cnt < min_count:
-                    min_count = cnt
-                    best_cell = i
-                    if cnt == 1:
-                        break
-        
-        if best_cell == -1:
-            return True
-        
-        cands = candidates[best_cell]
-        for val in range(1, n + 1):
-            if not (cands & (1 << val)):
-                continue
-            
-            new_board = board.copy()
-            new_cands = candidates.copy()
-            
-            new_board[best_cell] = val
-            new_cands[best_cell] = 1 << val
-            
-            if self._propagate(new_cands, new_board):
-                if self._solve_fast(new_board, new_cands):
-                    board[:] = new_board
-                    return True
-        
-        return False
-    
+        """Legacy wrapper kept for compatibility with older call paths."""
+        if len(board) != self.n * self.n or len(candidates) != self.n * self.n:
+            return False
+        if not self.search(board, candidates, depth=0):
+            return False
+        if not self.validate_solution(board):
+            return False
+        return True
+
     # Keep old interface for compatibility
     def _is_valid(self, board: List[int], row: int, col: int, val: int) -> bool:
         """Check if placing val at (row, col) is valid."""
@@ -1108,11 +1211,52 @@ class KenKenSolver:
                     return False
         
         return True
-    
+
     def _get_candidates(self, board: List[int], row: int, col: int) -> List[int]:
         """Get valid candidates for a cell."""
         return [v for v in range(1, self.size + 1) 
                 if self._is_valid(board, row, col, v)]
+
+    # Legacy implementation retained below for reference/compatibility paths.
+    def _legacy_solve_fast(self, board: List[int], candidates: List[int]) -> bool:
+        """Fast solving with propagation (legacy implementation)."""
+        n = self.n
+        
+        # Find cell with fewest candidates
+        best_cell = -1
+        min_count = n + 2
+        
+        for i in range(n * n):
+            if board[i] == 0:
+                cnt = self._count_bits(candidates[i])
+                if cnt == 0:
+                    return False
+                if cnt < min_count:
+                    min_count = cnt
+                    best_cell = i
+                    if cnt == 1:
+                        break
+        
+        if best_cell == -1:
+            return True
+        
+        cands = candidates[best_cell]
+        for val in range(1, n + 1):
+            if not (cands & (1 << val)):
+                continue
+            
+            new_board = board.copy()
+            new_cands = candidates.copy()
+            
+            new_board[best_cell] = val
+            new_cands[best_cell] = 1 << val
+            
+            if self._propagate(new_cands, new_board):
+                if self._legacy_solve_fast(new_board, new_cands):
+                    board[:] = new_board
+                    return True
+        
+        return False
 
 
 # Worker function for parallel generation (must be at module level for pickling)
