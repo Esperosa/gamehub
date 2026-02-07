@@ -33,7 +33,7 @@ class SudokuPlugin(BaseGamePlugin):
     def create_widget(self, parent=None) -> "QWidget":
         """Create and return the game widget."""
         import importlib.util
-        spec = importlib.util.spec_from_file_location("sudoku_ui", _this_dir / "ui.py")
+        spec = importlib.util.spec_from_file_location("sudoku_ui", _this_dir / "ui" / "__init__.py")
         module = importlib.util.module_from_spec(spec)
         sys.modules["sudoku_ui"] = module  # Required for proper module loading
         spec.loader.exec_module(module)
@@ -42,3 +42,4 @@ class SudokuPlugin(BaseGamePlugin):
 
 # Export plugin instance (required by plugin loader)
 plugin = SudokuPlugin()
+

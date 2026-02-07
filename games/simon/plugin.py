@@ -33,7 +33,7 @@ class SimonPlugin(BaseGamePlugin):
     def create_widget(self, parent=None) -> "QWidget":
         """Create and return the game widget."""
         import importlib.util
-        spec = importlib.util.spec_from_file_location("simon_ui", _this_dir / "ui.py")
+        spec = importlib.util.spec_from_file_location("simon_ui", _this_dir / "ui" / "__init__.py")
         module = importlib.util.module_from_spec(spec)
         sys.modules["simon_ui"] = module
         spec.loader.exec_module(module)
@@ -42,3 +42,4 @@ class SimonPlugin(BaseGamePlugin):
 
 # Export plugin instance (required by plugin loader)
 plugin = SimonPlugin()
+

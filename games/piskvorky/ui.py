@@ -10,10 +10,13 @@ Features:
 """
 from __future__ import annotations
 
+import importlib.util
 import math
 import random
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Callable
 from concurrent.futures import ThreadPoolExecutor, Future
 
@@ -30,15 +33,50 @@ from PySide6.QtWidgets import (
     QComboBox, QFrame, QSizePolicy, QStackedLayout, QGraphicsOpacityEffect
 )
 
-from engine import GameState, check_winner
-from ai import (
-    best_move_easy, best_move_medium, best_move_hard,
-    evaluate, win_probability_from_score, SearchResult, warmup
-)
-from stats import (
-    appdata_file, load_stats, save_stats, expected_score, update_elo,
-    get_config_key, get_rating, get_record, set_rating, set_record, add_history, Record
-)
+_THIS_DIR = Path(__file__).resolve().parent
+
+
+def _load_local_module(module_name: str, path: Path):
+    module = sys.modules.get(module_name)
+    if module is not None:
+        return module
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module {module_name} from {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_engine_module = _load_local_module("piskvorky_engine", _THIS_DIR / "engine.py")
+_ai_module = _load_local_module("piskvorky_ai", _THIS_DIR / "ai.py")
+_stats_module = _load_local_module("piskvorky_stats", _THIS_DIR / "stats.py")
+
+GameState = _engine_module.GameState
+check_winner = _engine_module.check_winner
+get_cell_lines = _engine_module.get_cell_lines
+
+best_move_easy = _ai_module.best_move_easy
+best_move_medium = _ai_module.best_move_medium
+best_move_hard = _ai_module.best_move_hard
+evaluate = _ai_module.evaluate
+win_probability_from_score = _ai_module.win_probability_from_score
+SearchResult = _ai_module.SearchResult
+warmup = _ai_module.warmup
+
+appdata_file = _stats_module.appdata_file
+load_stats = _stats_module.load_stats
+save_stats = _stats_module.save_stats
+expected_score = _stats_module.expected_score
+update_elo = _stats_module.update_elo
+get_config_key = _stats_module.get_config_key
+get_rating = _stats_module.get_rating
+get_record = _stats_module.get_record
+set_rating = _stats_module.set_rating
+set_record = _stats_module.set_record
+add_history = _stats_module.add_history
+Record = _stats_module.Record
 
 
 DIFF_MAP = {"Lehká": "easy", "Střední": "medium", "Těžká": "hard"}
@@ -1181,7 +1219,6 @@ class PiskvorkyWidget(QWidget):
             return False
         self.board.state.board[idx] = mark
         # Update line sums manually
-        from engine import get_cell_lines
         if self.board.state._line_sums is not None:
             cell_lines = get_cell_lines(self.n, self.board.state.win_len)
             for line_idx in cell_lines[idx]:

@@ -14,6 +14,7 @@ Strategy:
 """
 from __future__ import annotations
 
+import importlib.util
 import numpy as np
 try:
     from numba import njit, int8, int32, int64, boolean, prange
@@ -36,14 +37,35 @@ except ImportError:
 import random
 import math
 import time
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Set
 from functools import lru_cache
 
-from engine import (
-    GameState, check_winner_fast, find_winning_move, 
-    find_fork_moves, get_cell_lines, get_cached_lines
-)
+_THIS_DIR = Path(__file__).resolve().parent
+
+
+def _load_local_module(module_name: str, path: Path):
+    module = sys.modules.get(module_name)
+    if module is not None:
+        return module
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module {module_name} from {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_engine_module = _load_local_module("piskvorky_engine", _THIS_DIR / "engine.py")
+GameState = _engine_module.GameState
+check_winner_fast = _engine_module.check_winner_fast
+find_winning_move = _engine_module.find_winning_move
+find_fork_moves = _engine_module.find_fork_moves
+get_cell_lines = _engine_module.get_cell_lines
+get_cached_lines = _engine_module.get_cached_lines
 
 
 # =============================================================================

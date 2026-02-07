@@ -34,7 +34,7 @@ class OthelloPlugin(BaseGamePlugin):
         """Create and return the game widget."""
         import importlib.util
 
-        spec = importlib.util.spec_from_file_location("othello_ui", _this_dir / "ui.py")
+        spec = importlib.util.spec_from_file_location("othello_ui", _this_dir / "ui" / "__init__.py")
         module = importlib.util.module_from_spec(spec)
         sys.modules["othello_ui"] = module
         spec.loader.exec_module(module)
@@ -43,3 +43,4 @@ class OthelloPlugin(BaseGamePlugin):
 
 # Export plugin instance (required by plugin loader)
 plugin = OthelloPlugin()
+
