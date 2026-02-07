@@ -786,6 +786,9 @@ class SlitherlinkWidget(QWidget):
         self._current_size = 10
         self._current_difficulty = "medium"
         self._loading_puzzle = False
+        self._loader_thread: Optional[QThread] = None
+        self._loader_worker: Optional[PuzzleLoaderWorker] = None
+        self._solve_timer: Optional[QTimer] = None
         
         self._setup_ui()
         self._load_puzzle()
@@ -880,8 +883,25 @@ class SlitherlinkWidget(QWidget):
         
         layout.addLayout(footer)
         
-        # Auto-solve timer
-        self._solve_timer = None
+    def _stop_solve_timer(self) -> None:
+        if self._solve_timer:
+            self._solve_timer.stop()
+            self._solve_timer.deleteLater()
+            self._solve_timer = None
+
+    def _cleanup_loader_thread(self) -> None:
+        if self._loader_thread is not None:
+            if self._loader_thread.isRunning():
+                self._loader_thread.quit()
+                if not self._loader_thread.wait(1200):
+                    self._loader_thread.terminate()
+                    self._loader_thread.wait()
+            self._loader_thread.deleteLater()
+            self._loader_thread = None
+
+        if self._loader_worker is not None:
+            self._loader_worker.deleteLater()
+            self._loader_worker = None
     
     def _button_style(self, selected: bool) -> str:
         if selected:
@@ -959,6 +979,7 @@ class SlitherlinkWidget(QWidget):
         self._load_puzzle()
     
     def _load_puzzle(self):
+        self._cleanup_loader_thread()
         self._loading_puzzle = True
         self._board.set_loading(True, self._current_size)
         self._status.setText("Načítání...")
@@ -972,6 +993,7 @@ class SlitherlinkWidget(QWidget):
         self._loader_thread.started.connect(self._loader_worker.run)
         self._loader_worker.finished.connect(self._on_puzzle_loaded)
         self._loader_worker.finished.connect(self._loader_thread.quit)
+        self._loader_thread.finished.connect(self._cleanup_loader_thread)
         
         self._loader_thread.start()
     
@@ -1080,8 +1102,7 @@ class SlitherlinkWidget(QWidget):
         puzzle = self._board.state.puzzle
         
         # Stop any existing solve timer
-        if self._solve_timer:
-            self._solve_timer.stop()
+        self._stop_solve_timer()
         
         # Try to get solution - first from stored, then from solver
         solution_h = puzzle.solution_h
@@ -1134,8 +1155,7 @@ class SlitherlinkWidget(QWidget):
     def _solve_step_from_solution(self):
         """Apply one edge from the stored solution."""
         if not self._board.state or self._solve_index >= len(self._solve_edges):
-            if self._solve_timer:
-                self._solve_timer.stop()
+            self._stop_solve_timer()
             self._board.hint_edge = None
             self._board._check_completion()
             self._board.update()
@@ -1154,8 +1174,7 @@ class SlitherlinkWidget(QWidget):
     
     def _auto_solve_with_hints(self):
         """Fallback: solve using constraint propagation hints."""
-        if self._solve_timer:
-            self._solve_timer.stop()
+        self._stop_solve_timer()
         
         self._solve_timer = QTimer(self)
         self._solve_timer.setInterval(100)
@@ -1165,15 +1184,13 @@ class SlitherlinkWidget(QWidget):
     def _solve_step(self):
         """Apply one hint step."""
         if not self._board.state:
-            if self._solve_timer:
-                self._solve_timer.stop()
+            self._stop_solve_timer()
             return
         
         # Check if already solved
         complete, _ = self._board.state.is_complete()
         if complete:
-            if self._solve_timer:
-                self._solve_timer.stop()
+            self._stop_solve_timer()
             return
         
         # Try to get and apply a hint
@@ -1194,15 +1211,31 @@ class SlitherlinkWidget(QWidget):
             self._board._check_completion()
         else:
             # No more hints available (stuck or solved)
-            if self._solve_timer:
-                self._solve_timer.stop()
+            self._stop_solve_timer()
             self._board.hint_edge = None
             self._board.update()
     
     def _clear_board(self):
         # Stop auto-solve if running
-        if self._solve_timer:
-            self._solve_timer.stop()
+        self._stop_solve_timer()
         if self._board.state:
             self._board.state.clear()
             self._board.update()
+
+    # Lifecycle hooks (called by hub on mount/unmount)
+    def on_activate(self) -> None:
+        self._board.setFocus()
+
+    def on_deactivate(self) -> None:
+        self._stop_solve_timer()
+        self._cleanup_loader_thread()
+        self._loading_puzzle = False
+
+    def dispose(self) -> None:
+        self._stop_solve_timer()
+        self._cleanup_loader_thread()
+        self._loading_puzzle = False
+
+    def closeEvent(self, event) -> None:
+        self.dispose()
+        super().closeEvent(event)

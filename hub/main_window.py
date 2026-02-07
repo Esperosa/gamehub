@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QStackedWidget, QScrollArea, QGridLayout,
+    QStackedWidget, QGridLayout,
     QFrame, QMessageBox, QStyle, QSizePolicy
 )
 
@@ -18,6 +19,9 @@ from hub.widgets.game_card import GameCard
 from hub.widgets.transitions import fade_in
 from hub.widgets.skeleton import SkeletonCard
 from hub.theme import apply_theme
+
+
+_log = logging.getLogger(__name__)
 
 
 class HomePage(QWidget):
@@ -140,6 +144,8 @@ class MainWindow(QMainWindow):
 
         self._plugins: List[LoadedPlugin] = []
         self._home: Optional[HomePage] = None
+        self._active_plugin_page: Optional[QWidget] = None
+        self._active_plugin_widget: Optional[QWidget] = None
 
         self._loading_home = HomePage([], on_open=None, loading=True, card_width=200)
         self._stack.addWidget(self._loading_home)
@@ -206,6 +212,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(150, finish)
 
     def _show_loading_state(self) -> None:
+        self._teardown_active_plugin()
+
         if self._home is not None:
             idx = self._stack.indexOf(self._home)
             if idx >= 0:
@@ -233,16 +241,46 @@ class MainWindow(QMainWindow):
         fade_in(self._home)
 
     def _go_home(self) -> None:
+        self._teardown_active_plugin()
+
         if self._home:
             self._stack.setCurrentWidget(self._home)
             fade_in(self._home)
         elif self._loading_home:
             self._stack.setCurrentWidget(self._loading_home)
 
+    def _call_lifecycle_hook(self, widget: QWidget, hook_name: str) -> None:
+        hook: Optional[Callable[[], None]] = getattr(widget, hook_name, None)
+        if not callable(hook):
+            return
+        try:
+            hook()
+        except Exception as exc:
+            _log.exception("Widget lifecycle hook '%s' failed: %r", hook_name, exc)
+
+    def _teardown_active_plugin(self) -> None:
+        page = self._active_plugin_page
+        widget = self._active_plugin_widget
+        if page is None:
+            return
+
+        if widget is not None:
+            self._call_lifecycle_hook(widget, "on_deactivate")
+            self._call_lifecycle_hook(widget, "dispose")
+
+        idx = self._stack.indexOf(page)
+        if idx >= 0:
+            self._stack.removeWidget(page)
+        page.deleteLater()
+
+        self._active_plugin_page = None
+        self._active_plugin_widget = None
+
     def open_plugin(self, lp: LoadedPlugin) -> None:
         # update last-run info
         self._last_runs[lp.plugin.meta.id] = time.time()
         self._save_last_runs()
+        self._teardown_active_plugin()
 
         page = QWidget()
         v = QVBoxLayout(page)
@@ -270,16 +308,25 @@ class MainWindow(QMainWindow):
         try:
             widget = lp.plugin.create_widget(parent=page)
             v.addWidget(widget, 1)
+            self._active_plugin_widget = widget
         except Exception as e:
             err = QLabel(f"Plugin spadl při vytváření widgetu:\n{e!r}")
             err.setWordWrap(True)
             v.addWidget(err, 1)
+            self._active_plugin_widget = None
 
         self._stack.addWidget(page)
         self._stack.setCurrentWidget(page)
+        self._active_plugin_page = page
+        if self._active_plugin_widget is not None:
+            self._call_lifecycle_hook(self._active_plugin_widget, "on_activate")
         fade_in(page)
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key_Escape:
             self._go_home()
         super().keyPressEvent(event)
+
+    def closeEvent(self, event) -> None:
+        self._teardown_active_plugin()
+        super().closeEvent(event)

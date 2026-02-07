@@ -1191,3 +1191,13 @@ class KenKenWidget(QWidget):
             f"Čas: {time_str}\n{hint_str}",
             self.new_game
         )
+
+    # Lifecycle hooks (called by hub on mount/unmount)
+    def on_activate(self) -> None:
+        self.board.setFocus()
+
+    def on_deactivate(self) -> None:
+        self._cleanup_gen_thread()
+
+    def dispose(self) -> None:
+        self._cleanup_gen_thread()
