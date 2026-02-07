@@ -86,6 +86,91 @@ def _qss_midnight() -> str:
         border: 1px solid rgba(255,255,255,0.05);
         border-radius: 12px;
     }
+
+    QDialog, QMessageBox, QFileDialog {
+        background: rgba(10, 14, 22, 0.98);
+    }
+    QDialog, QMessageBox {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+    }
+    QDialog QLabel, QMessageBox QLabel {
+        color: #E6E9F2;
+    }
+    QDialog QGroupBox {
+        margin-top: 10px;
+        padding-top: 12px;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.03);
+        font-weight: 700;
+    }
+    QDialog QGroupBox::title {
+        subcontrol-origin: margin;
+        left: 10px;
+        padding: 0 4px;
+        color: rgba(230,233,242,0.88);
+    }
+    QDialog QLineEdit, QDialog QComboBox {
+        background: rgba(7, 11, 19, 0.95);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        padding: 6px 8px;
+        selection-background-color: rgba(96, 165, 250, 0.35);
+    }
+    QDialog QLineEdit:focus, QDialog QComboBox:focus {
+        border: 1px solid rgba(100, 190, 255, 0.65);
+    }
+    QDialog QSpinBox {
+        background: rgba(7, 11, 19, 0.95);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        padding: 0px 28px 0px 8px;
+        min-height: 30px;
+        selection-background-color: rgba(96, 165, 250, 0.35);
+    }
+    QDialog QSpinBox:focus {
+        border: 1px solid rgba(100, 190, 255, 0.65);
+    }
+    QDialog QSpinBox::up-button, QDialog QSpinBox::down-button {
+        width: 20px;
+        border-left: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+    }
+    QDialog QSpinBox::up-button {
+        subcontrol-origin: border;
+        subcontrol-position: top right;
+        border-top-right-radius: 8px;
+    }
+    QDialog QSpinBox::down-button {
+        subcontrol-origin: border;
+        subcontrol-position: bottom right;
+        border-bottom-right-radius: 8px;
+        border-top: 1px solid rgba(255,255,255,0.10);
+    }
+    QDialog QSpinBox::up-button:hover, QDialog QSpinBox::down-button:hover {
+        background: rgba(96, 165, 250, 0.20);
+    }
+    QDialog QComboBox::drop-down {
+        border: none;
+        width: 22px;
+    }
+    QComboBox QAbstractItemView {
+        background: rgba(10, 14, 22, 0.98);
+        color: #E6E9F2;
+        border: 1px solid rgba(255,255,255,0.14);
+        selection-background-color: rgba(96, 165, 250, 0.25);
+    }
+    QDialog QTreeView, QDialog QListView, QDialog QTableView {
+        background: rgba(7, 11, 19, 0.95);
+        color: #E6E9F2;
+        border: 1px solid rgba(255,255,255,0.10);
+        alternate-background-color: rgba(255,255,255,0.03);
+    }
+    QDialog QTreeView::item:selected, QDialog QListView::item:selected, QDialog QTableView::item:selected {
+        background: rgba(96, 165, 250, 0.25);
+        color: #E6E9F2;
+    }
     """
 
 
@@ -170,6 +255,91 @@ def _qss_slate() -> str:
         background: #FFFFFF;
         border: 1px solid rgba(0,0,0,0.06);
         border-radius: 12px;
+    }
+
+    QDialog, QMessageBox, QFileDialog {
+        background: #FFFFFF;
+    }
+    QDialog, QMessageBox {
+        border: 1px solid rgba(0,0,0,0.08);
+        border-radius: 12px;
+    }
+    QDialog QLabel, QMessageBox QLabel {
+        color: #1E2430;
+    }
+    QDialog QGroupBox {
+        margin-top: 10px;
+        padding-top: 12px;
+        border: 1px solid rgba(0,0,0,0.08);
+        border-radius: 10px;
+        background: #F8FAFF;
+        font-weight: 700;
+    }
+    QDialog QGroupBox::title {
+        subcontrol-origin: margin;
+        left: 10px;
+        padding: 0 4px;
+        color: #334155;
+    }
+    QDialog QLineEdit, QDialog QComboBox {
+        background: #FFFFFF;
+        border: 1px solid rgba(0,0,0,0.14);
+        border-radius: 8px;
+        padding: 6px 8px;
+        selection-background-color: rgba(96, 165, 250, 0.30);
+    }
+    QDialog QLineEdit:focus, QDialog QComboBox:focus {
+        border: 1px solid #60A5FA;
+    }
+    QDialog QSpinBox {
+        background: #FFFFFF;
+        border: 1px solid rgba(0,0,0,0.14);
+        border-radius: 8px;
+        padding: 0px 28px 0px 8px;
+        min-height: 30px;
+        selection-background-color: rgba(96, 165, 250, 0.30);
+    }
+    QDialog QSpinBox:focus {
+        border: 1px solid #60A5FA;
+    }
+    QDialog QSpinBox::up-button, QDialog QSpinBox::down-button {
+        width: 20px;
+        border-left: 1px solid rgba(0,0,0,0.12);
+        background: #F3F4F6;
+    }
+    QDialog QSpinBox::up-button {
+        subcontrol-origin: border;
+        subcontrol-position: top right;
+        border-top-right-radius: 8px;
+    }
+    QDialog QSpinBox::down-button {
+        subcontrol-origin: border;
+        subcontrol-position: bottom right;
+        border-bottom-right-radius: 8px;
+        border-top: 1px solid rgba(0,0,0,0.08);
+    }
+    QDialog QSpinBox::up-button:hover, QDialog QSpinBox::down-button:hover {
+        background: #E8F0FF;
+    }
+    QDialog QComboBox::drop-down {
+        border: none;
+        width: 22px;
+    }
+    QComboBox QAbstractItemView {
+        background: #FFFFFF;
+        color: #1E2430;
+        border: 1px solid rgba(0,0,0,0.15);
+        selection-background-color: rgba(96, 165, 250, 0.25);
+    }
+    QDialog QTreeView, QDialog QListView, QDialog QTableView {
+        background: #FFFFFF;
+        color: #1E2430;
+        border: 1px solid rgba(0,0,0,0.10);
+        alternate-background-color: #F8FAFF;
+    }
+    QDialog QTreeView::item:selected, QDialog QListView::item:selected, QDialog QTableView::item:selected {
+        background: rgba(96, 165, 250, 0.20);
+        color: #0F172A;
     }
     """
 

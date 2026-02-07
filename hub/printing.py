@@ -70,6 +70,7 @@ class BatchPrintDialog(QDialog):
             spin = QSpinBox()
             spin.setRange(0, 500)
             spin.setSingleStep(1)
+            spin.setButtonSymbols(QSpinBox.UpDownArrows)
             spin.setValue(0)
 
             row.addWidget(lbl, 1)
@@ -141,14 +142,20 @@ class BatchPrintDialog(QDialog):
 
     def _browse_pdf_path(self) -> None:
         current = self._pdf_path.text().strip() or str(Path.home())
-        path, _ = QFileDialog.getSaveFileName(
+        dlg = QFileDialog(
             self,
             "Vyber PDF",
             current,
             "PDF soubory (*.pdf)",
         )
-        if path:
-            p = Path(path)
+        dlg.setAcceptMode(QFileDialog.AcceptSave)
+        dlg.setDefaultSuffix("pdf")
+        dlg.setOption(QFileDialog.DontUseNativeDialog, True)
+        if dlg.exec() == QDialog.Accepted:
+            files = dlg.selectedFiles()
+            if not files:
+                return
+            p = Path(files[0])
             if p.suffix.lower() != ".pdf":
                 p = p.with_suffix(".pdf")
             self._pdf_path.setText(str(p))
