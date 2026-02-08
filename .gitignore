@@ -12,6 +12,7 @@ dist/
 # Python cache
 __pycache__/
 *.py[cod]
+.hypothesis/
 
 # Runtime/generated files
 games/.last_runs.json
