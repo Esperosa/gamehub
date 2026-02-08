@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Desktop aplikace v Pythonu (PySide6), ktera sdruzuje logicke hry, AI moduly a tisk/PDF exporty do jednoho launcheru.
+  Desktop aplikace v Pythonu (PySide6), která sdružuje logické hry, AI moduly a tisk/PDF exporty do jednoho launcheru.
 </p>
 
 <p align="center">
@@ -19,7 +19,14 @@
   <img src="docs/media/repo_hero.png" alt="GameHub hero" width="100%" />
 </p>
 
-## Gameplay Preview (4s Clips)
+## Gameplay Preview (8s Clips)
+
+Klipy jsou generované v režimu „klidná ukázka“: `8 s`, `10 FPS`, `1280x720`, střední nastavení hry
+(u lehkých her větší herní plocha), bez speed-run stylu.
+
+| Hub | Print Dialog | PDF Preview |
+|---|---|---|
+| ![Hub gameplay](docs/media/clips/hub.gif) | ![Print dialog gameplay](docs/media/clips/print_dialog.gif) | ![PDF preview gameplay](docs/media/clips/pdf_preview.gif) |
 
 | 2048 | KenKen | Mastermind |
 |---|---|---|
@@ -37,16 +44,16 @@
 
 | Download | Quick Start | Architecture | Print/PDF | Benchmarks |
 |---|---|---|---|---|
-| [Releases](https://github.com/Esperosa/gamehub/releases) | [Rychly start](#rychly-start) | [ARCHITECTURE.md](ARCHITECTURE.md) | [print_export_samples.md](docs/print_export_samples.md) | [benchmarks/README.md](benchmarks/README.md) |
+| [Releases](https://github.com/Esperosa/gamehub/releases) | [Rychlý start](#rychlý-start) | [ARCHITECTURE.md](ARCHITECTURE.md) | [print_export_samples.md](docs/print_export_samples.md) | [benchmarks/README.md](benchmarks/README.md) |
 
 ## GitHub Branding
 
-- Social preview obrazek: `docs/media/social_preview.png`
+- Social preview obrázek: `docs/media/social_preview.png`
 - README hero: `docs/media/repo_hero.png`
-- Gameplay klipy (4s): `docs/media/clips/*.gif`
+- Gameplay klipy (8s): `docs/media/clips/*.gif`
 - Regenerace assetu: `python scripts/generate_repo_branding.py --output-dir docs/media`
-- Regenerace gameplay klipu: `python scripts/generate_gameplay_clips.py --output-dir docs/media/clips`
-- Manual pro repo branding: `docs/repository_branding.md`
+- Regenerace gameplay klipu: `python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 8 --fps 10 --width 1280 --height 720`
+- Manuál pro repo branding: `docs/repository_branding.md`
 
 ## Download
 
@@ -99,10 +106,10 @@ Branding hero/social preview assety:
 .venv\Scripts\python scripts/generate_repo_branding.py --output-dir docs/media
 ```
 
-Gameplay klipy (4s, každá hra):
+Gameplay klipy (8s, Hub + hry + print dialog + PDF preview):
 
 ```bash
-.venv\Scripts\python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 4 --fps 8
+.venv\Scripts\python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 8 --fps 10 --width 1280 --height 720
 ```
 
 | Hub | 2048 |
@@ -155,7 +162,7 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - `docs/sudoku_generation_performance.md` - srovnání variant generování Sudoku 16x16 hard a výsledky benchmarku
 - `docs/print_export_samples.md` - jak vznikají print dialog screenshoty a PDF sample exporty
 - `docs/repository_branding.md` - jak regenerovat README hero/social preview assety
-- `scripts/generate_gameplay_clips.py` - automatická tvorba 4s gameplay klipů pro README
+- `scripts/generate_gameplay_clips.py` - automatická tvorba 8s gameplay klipů pro README
 - `benchmarks/README.md` - benchmark artefakty a jejich kontext
 
 ## Co v aplikaci je

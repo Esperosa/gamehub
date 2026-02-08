@@ -1,12 +1,15 @@
 # Repository Branding
 
-Tento projekt ma pripraveny branding set pro GitHub profil repozitare.
+Tento projekt má připravený branding set pro GitHub profil repozitáře.
 
-## Generovane assety
+## Generované Assety
 
-- `docs/media/repo_hero.png` - hlavni README hero obrazek (`1600x900`)
+- `docs/media/repo_hero.png` - hlavní README hero obrázek (`1600x900`)
 - `docs/media/social_preview.png` - GitHub social preview (`1280x640`)
-- `docs/media/clips/*.gif` - kratke 4s gameplay klipy pro vsechny hry (`960x540`)
+- `docs/media/clips/hub.gif` - ukázka hub navigace (`8s`, `1280x720`, `10 FPS`)
+- `docs/media/clips/print_dialog.gif` - práce s tisk/PDF dialogem (`8s`, `1280x720`, `10 FPS`)
+- `docs/media/clips/pdf_preview.gif` - scroll náhledem exportovaného PDF (`8s`, `1280x720`, `10 FPS`)
+- `docs/media/clips/<game>.gif` - 8s klipy všech her ve středním nastavení (u lehkých her větší plocha)
 
 ## Regenerace
 
@@ -17,10 +20,10 @@ Tento projekt ma pripraveny branding set pro GitHub profil repozitare.
 Gameplay klipy:
 
 ```bash
-.venv\Scripts\python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 4 --fps 8
+.venv\Scripts\python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 8 --fps 10 --width 1280 --height 720
 ```
 
-Vstupni zdroje:
+Vstupní zdroje:
 
 - `hub/assets/brainhub.png`
 - `docs/media/home.png`
@@ -30,12 +33,12 @@ Vstupni zdroje:
 - `docs/media/slitherlink.png`
 - `docs/media/game2048.png`
 
-Gameplay klipy vyzaduji bezici Qt GUI prostredi, proto se generuji jako samostatny krok.
+Gameplay klipy vyžadují běžící Qt GUI prostředí, proto se generují jako samostatný krok.
 
-## Nastaveni na GitHubu
+## Nastavení na GitHubu
 
-1. Otevri `Settings -> General` v repozitari.
+1. Otevři `Settings -> General` v repozitáři.
 2. V sekci `Social preview` nahraj `docs/media/social_preview.png`.
-3. Uloz zmenu (`Save`).
+3. Ulož změnu (`Save`).
 
-Toto je manualni krok; GitHub API to automaticky pres git push nenastavuje.
+Toto je manuální krok; GitHub API to automaticky přes `git push` nenastavuje.

@@ -164,37 +164,45 @@ def _draw_logo_text(p: QPainter, rect: QRectF, logo: QImage) -> None:
     )
 
     subtitle_font = QFont("Segoe UI")
-    subtitle_font.setPointSizeF(max(10.0, rect.height() * 0.04))
+    subtitle_font.setPointSizeF(max(10.0, rect.height() * 0.041))
     p.setFont(subtitle_font)
     p.setPen(QColor("#a8bdd8"))
+    subtitle_rect = QRectF(
+        logo_rect.right() + rect.width() * 0.03,
+        logo_rect.top() + logo_rect.height() * 0.54,
+        rect.width() - logo_rect.width() - rect.width() * 0.03,
+        logo_rect.height() * 0.46,
+    )
     p.drawText(
-        QRectF(
-            logo_rect.right() + rect.width() * 0.03,
-            logo_rect.top() + logo_rect.height() * 0.54,
-            rect.width() - logo_rect.width() - rect.width() * 0.03,
-            logo_rect.height() * 0.46,
-        ),
-        Qt.AlignLeft | Qt.AlignTop,
-        "Stylový launcher logických her, AI módů a PDF exportů.",
+        subtitle_rect,
+        Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+        "Stylový launcher logických her",
     )
 
     body_font = QFont("Segoe UI")
-    body_font.setPointSizeF(max(10.0, rect.height() * 0.038))
+    body_font.setPointSizeF(max(10.0, rect.height() * 0.036))
     p.setFont(body_font)
     p.setPen(QColor("#d3e2f7"))
     description = (
-        "9 her v jednotném design systému, plynulé UI, tisk/PDF, plugin architektura "
-        "a release-ready desktop build pipeline."
+        "9 her v jednotném design systému,\n"
+        "plynulé UI, tisk/PDF export,\n"
+        "plugin architektura a\n"
+        "release-ready desktop pipeline."
     )
     p.drawText(
-        QRectF(rect.left(), logo_rect.bottom() + rect.height() * 0.06, rect.width(), rect.height() * 0.22),
-        Qt.TextWordWrap,
+        QRectF(
+            rect.left(),
+            logo_rect.bottom() + rect.height() * 0.05,
+            rect.width() * 0.98,
+            rect.height() * 0.29,
+        ),
+        Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
         description,
     )
 
     _draw_chips(
         p,
-        QRectF(rect.left(), rect.bottom() - rect.height() * 0.2, rect.width(), rect.height() * 0.2),
+        QRectF(rect.left(), rect.bottom() - rect.height() * 0.22, rect.width(), rect.height() * 0.22),
         [
             "PySide6",
             "9 Games",
@@ -251,60 +259,6 @@ def _render_composition(
         raise RuntimeError(f"Failed to save branding image: {output}")
 
 
-def _make_showcase_gif(output: Path, frames: Sequence[Path], size: tuple[int, int]) -> bool:
-    try:
-        from PIL import Image, ImageDraw
-    except Exception:
-        return False
-
-    width, height = size
-    images: list[Image.Image] = []
-    labels = {
-        "home": "Hub",
-        "sudoku": "Sudoku",
-        "kenken": "KenKen",
-        "slitherlink": "Slitherlink",
-        "othello": "Othello",
-        "game2048": "2048",
-    }
-    for source in frames:
-        base = Image.open(source).convert("RGB")
-        src_ratio = base.width / base.height
-        dst_ratio = width / height
-        if src_ratio > dst_ratio:
-            crop_w = int(base.height * dst_ratio)
-            left = (base.width - crop_w) // 2
-            box = (left, 0, left + crop_w, base.height)
-        else:
-            crop_h = int(base.width / dst_ratio)
-            top = (base.height - crop_h) // 2
-            box = (0, top, base.width, top + crop_h)
-        frame = base.crop(box).resize((width, height), Image.Resampling.LANCZOS)
-
-        # Bottom gradient bar + caption.
-        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(overlay)
-        for y in range(int(height * 0.22)):
-            alpha = int((y / max(1, int(height * 0.22))) * 170)
-            draw.rectangle([(0, height - int(height * 0.22) + y), (width, height - int(height * 0.22) + y)], fill=(8, 12, 24, alpha))
-        draw.rectangle([(22, 20), (300, 66)], outline=(79, 216, 255, 190), fill=(16, 32, 56, 120), width=2)
-        label = labels.get(source.stem, source.stem.title())
-        draw.text((36, 33), f"GameHub | {label}", fill=(223, 246, 255, 240))
-        frame = Image.alpha_composite(frame.convert("RGBA"), overlay).convert("P", palette=Image.Palette.ADAPTIVE)
-        images.append(frame)
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    images[0].save(
-        output,
-        save_all=True,
-        append_images=images[1:],
-        duration=[700] * len(images),
-        loop=0,
-        optimize=True,
-    )
-    return True
-
-
 def generate(output_dir: Path) -> list[Path]:
     media = ROOT / "docs" / "media"
     logo = ROOT / "hub" / "assets" / "brainhub.png"
@@ -339,20 +293,6 @@ def generate(output_dir: Path) -> list[Path]:
         home_path=home,
         game_paths=cards,
     )
-
-    gif_sources = [
-        media / "home.png",
-        media / "sudoku.png",
-        media / "kenken.png",
-        media / "slitherlink.png",
-        media / "othello.png",
-        media / "game2048.png",
-    ]
-    if all(path.exists() for path in gif_sources):
-        gif_path = output_dir / "showcase.gif"
-        created = _make_showcase_gif(gif_path, gif_sources, size=(1280, 720))
-        if created:
-            outputs.append(gif_path)
 
     return outputs
 
