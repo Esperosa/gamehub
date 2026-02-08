@@ -41,6 +41,12 @@ Skript automaticky:
 - provede minimální rozehrání (hint/tah),
 - ověří, že obrázky nejsou prázdné a mají validní rozměr.
 
+Print dialog screenshoty + PDF sample exporty:
+
+```bash
+.venv\Scripts\python scripts/generate_print_assets.py --media-dir docs/media --sample-dir docs/samples
+```
+
 | Hub | 2048 |
 |---|---|
 | ![Hub](docs/media/home.png) | ![2048](docs/media/game2048.png) |
@@ -61,6 +67,21 @@ Skript automaticky:
 |---|---|
 | ![Slitherlink](docs/media/slitherlink.png) | ![Sudoku](docs/media/sudoku.png) |
 
+| Print Sudoku | Print KenKen | Print Slitherlink |
+|---|---|---|
+| ![Print Sudoku](docs/media/print_dialog_sudoku.png) | ![Print KenKen](docs/media/print_dialog_kenken.png) | ![Print Slitherlink](docs/media/print_dialog_slitherlink.png) |
+
+## PDF Export Samples
+
+Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
+
+- Sudoku:
+  - [layout 1](docs/samples/sudoku_layout_1.pdf), [layout 2](docs/samples/sudoku_layout_2.pdf), [layout 4](docs/samples/sudoku_layout_4.pdf), [layout 6](docs/samples/sudoku_layout_6.pdf), [layout 9](docs/samples/sudoku_layout_9.pdf)
+- KenKen:
+  - [layout 1](docs/samples/kenken_layout_1.pdf), [layout 2](docs/samples/kenken_layout_2.pdf), [layout 4](docs/samples/kenken_layout_4.pdf), [layout 6](docs/samples/kenken_layout_6.pdf), [layout 9](docs/samples/kenken_layout_9.pdf)
+- Slitherlink:
+  - [layout 1](docs/samples/slitherlink_layout_1.pdf), [layout 2](docs/samples/slitherlink_layout_2.pdf), [layout 4](docs/samples/slitherlink_layout_4.pdf), [layout 6](docs/samples/slitherlink_layout_6.pdf), [layout 9](docs/samples/slitherlink_layout_9.pdf)
+
 ## Licence a autor
 
 - Licence: [MIT](LICENSE)
@@ -74,6 +95,7 @@ Skript automaticky:
 - `CONTRIBUTING.md` - dev setup, testy, coding style, contribution workflow
 - `CHANGELOG.md` - verze a změny
 - `docs/sudoku_generation_performance.md` - srovnání variant generování Sudoku 16x16 hard a výsledky benchmarku
+- `docs/print_export_samples.md` - jak vznikají print dialog screenshoty a PDF sample exporty
 
 ## Co v aplikaci je
 
@@ -136,6 +158,10 @@ V hrách `sudoku`, `kenken` a `slitherlink` je tlačítko `Tisk/PDF` pro dávkov
   - Počty variant jsou `0` (uživatel vyplní přesně co chce).
   - Výstup je defaultně `PDF`.
   - Cesta pro PDF je defaultně složka `Downloads`.
+- Ukázky:
+  - Print dialog screenshoty: `docs/media/print_dialog_*.png`
+  - PDF sample exporty: `docs/samples/*_layout_{1,2,4,6,9}.pdf`
+  - Reprodukce: `docs/print_export_samples.md`
 - Vzhled tisku:
   - Sudoku: čistá mřížka + zadané hodnoty.
   - KenKen: zvýrazněné klece a výraznější linky klecí.
@@ -273,16 +299,16 @@ Níže je praktický přehled pravidel, ovládání a interní logiky (AI/solver
   - Vyplnit mřížku čísly podle pravidel Sudoku.
 - Ovládání:
   - Klik na buňku.
-  - `1..9` zadání, `Delete/Backspace/0` smazání.
+  - `1..9` a pro větší varianty `A..Z`, `Delete/Backspace/0` smazání.
   - `Šipky` navigace.
   - Kolečko myši cykluje hodnoty.
-  - Velikost (`3x3`, `6x6`, `9x9`), obtížnost, `Nápověda`, `Nová hra`, `Tisk/PDF`.
+  - Velikost (`4x4`, `6x6`, `9x9`, `16x16`), obtížnost, `Nápověda`, `Nová hra`, `Tisk/PDF`.
 - Funkce:
   - Highlight konfliktů, průběh, konfety při dokončení.
   - Tisk/PDF čisté sudoku mřížky (černobílý A4 export).
 - Agent/AI:
-  - Backtracking solver s MRV heuristikou.
-  - Generátor vytváří puzzle s ověřenou jednoznačností řešení.
+  - Backtracking solver s MRV + bitmask optimalizací.
+  - Generátor vytváří puzzle z referenčního řešení a ověřuje alternativní řešení (unikátnost) s time-budgety.
 
 ## Struktura projektu
 
