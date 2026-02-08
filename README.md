@@ -75,7 +75,6 @@
 
 - GitHub dokumentace je vedená `cs-first` (čeština jako hlavní jazyk).
 - In-app přepínač jazyka je nyní záměrně vypnutý a ponechaný jako TODO komentář v `hub/main_window.py`.
-- Cíl tohoto kola byl sjednotit jazyk především na GitHubu (README, šablony issue/PR, bezpečnostní dokumenty, landing page).
 
 ## Garance Solverů
 
