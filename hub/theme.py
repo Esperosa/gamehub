@@ -151,6 +151,28 @@ def _qss_midnight() -> str:
     QDialog QSpinBox::up-button:hover, QDialog QSpinBox::down-button:hover {
         background: rgba(96, 165, 250, 0.20);
     }
+    QDialog QSpinBox::up-arrow {
+        width: 0px;
+        height: 0px;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-bottom: 7px solid rgba(230,233,242,0.95);
+        margin-top: 1px;
+    }
+    QDialog QSpinBox::down-arrow {
+        width: 0px;
+        height: 0px;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-top: 7px solid rgba(230,233,242,0.95);
+        margin-bottom: 1px;
+    }
+    QDialog QSpinBox::up-arrow:disabled {
+        border-bottom-color: rgba(230,233,242,0.35);
+    }
+    QDialog QSpinBox::down-arrow:disabled {
+        border-top-color: rgba(230,233,242,0.35);
+    }
     QDialog QComboBox::drop-down {
         border: none;
         width: 22px;
@@ -320,6 +342,28 @@ def _qss_slate() -> str:
     }
     QDialog QSpinBox::up-button:hover, QDialog QSpinBox::down-button:hover {
         background: #E8F0FF;
+    }
+    QDialog QSpinBox::up-arrow {
+        width: 0px;
+        height: 0px;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-bottom: 7px solid #1F2937;
+        margin-top: 1px;
+    }
+    QDialog QSpinBox::down-arrow {
+        width: 0px;
+        height: 0px;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-top: 7px solid #1F2937;
+        margin-bottom: 1px;
+    }
+    QDialog QSpinBox::up-arrow:disabled {
+        border-bottom-color: rgba(31,41,55,0.35);
+    }
+    QDialog QSpinBox::down-arrow:disabled {
+        border-top-color: rgba(31,41,55,0.35);
     }
     QDialog QComboBox::drop-down {
         border: none;
