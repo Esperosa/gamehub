@@ -5,7 +5,6 @@ from typing import Callable, Optional, TypeVar
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
 
-
 _T = TypeVar("_T")
 
 _log = logging.getLogger(__name__)
@@ -46,14 +45,24 @@ class _WorkerRunnable(QRunnable):
     def run(self) -> None:
         if self._handle.cancelled:
             return
+
+        def _safe_emit(kind: str, payload: object) -> None:
+            try:
+                if kind == "error":
+                    self._signals.error.emit(payload)
+                else:
+                    self._signals.done.emit(payload)
+            except RuntimeError:
+                _log.debug("Worker %s callback dropped because signal source is gone.", kind)
+
         try:
             result = self._fn()
         except Exception as exc:
             _log.exception("Background task failed.")
-            self._signals.error.emit(exc)
+            _safe_emit("error", exc)
             return
 
-        self._signals.done.emit(result)
+        _safe_emit("done", result)
 
 
 def run_in_worker(
@@ -70,7 +79,9 @@ def run_in_worker(
     """
     worker_pool = pool or QThreadPool.globalInstance()
     handle = WorkerHandle()
-    signals = _WorkerSignals(parent)
+    # Keep signal source independent from short-lived widget parents.
+    # Parent destruction still cancels callbacks via WorkerHandle below.
+    signals = _WorkerSignals()
 
     def _done(result: object) -> None:
         if handle.cancelled:
