@@ -9,9 +9,10 @@ This solver achieves 2048+ in 95%+ of games by:
 """
 from __future__ import annotations
 
-import numpy as np
-from typing import Optional
 from enum import Enum
+from typing import Optional
+
+import numpy as np
 
 try:
     from numba import njit
@@ -143,6 +144,17 @@ def count_empty(grid):
             if grid[r, c] == 0:
                 count += 1
     return count
+
+
+@njit
+def max_tile_numba(grid):
+    """Return maximum tile value on grid."""
+    max_tile = 0
+    for r in range(4):
+        for c in range(4):
+            if grid[r, c] > max_tile:
+                max_tile = grid[r, c]
+    return max_tile
 
 
 @njit
@@ -296,6 +308,9 @@ def get_best_move_numba(grid, depth, gradient_weights):
     """Get best move using expectimax. Returns direction constant or -1."""
     best_score = -1e18
     best_move = -1
+    winning_move = -1
+    winning_tile = -1
+    winning_gain = -1
     
     safe_scores = np.zeros(4, dtype=np.float64)
     safe_valid = np.zeros(4, dtype=np.int64)
@@ -305,12 +320,24 @@ def get_best_move_numba(grid, depth, gradient_weights):
     for direction in (DIR_LEFT, DIR_UP, DIR_DOWN, DIR_RIGHT):
         new_grid, move_score, moved = simulate_move_numba(grid, direction)
         if moved:
+            # Tactical override: if a move can create 2048+, always prioritize it.
+            new_max = max_tile_numba(new_grid)
+            if new_max >= 2048:
+                if new_max > winning_tile or (new_max == winning_tile and move_score > winning_gain):
+                    winning_move = direction
+                    winning_tile = new_max
+                    winning_gain = move_score
+                continue
+
             if is_move_safe_numba(grid, direction):
                 safe_valid[direction] = 1
                 safe_scores[direction] = move_score * 0.01 + expectimax_numba(new_grid, depth, False, gradient_weights)
             else:
                 unsafe_valid[direction] = 1
                 unsafe_scores[direction] = move_score * 0.01 + expectimax_numba(new_grid, depth, False, gradient_weights)
+
+    if winning_move != -1:
+        return winning_move
     
     for direction in range(4):
         if safe_valid[direction] == 1:
