@@ -6,7 +6,7 @@ from games.sudoku.engine import SudokuConfig, SudokuSolver, create_puzzle
 from hub.solver_contract import SolveStatus
 
 
-KNOWN_PUZZLE = [
+KNOWN_PUZZLE_9X9 = [
     5, 3, 0, 0, 7, 0, 0, 0, 0,
     6, 0, 0, 1, 9, 5, 0, 0, 0,
     0, 9, 8, 0, 0, 0, 0, 6, 0,
@@ -18,7 +18,7 @@ KNOWN_PUZZLE = [
     0, 0, 0, 0, 8, 0, 0, 7, 9,
 ]
 
-KNOWN_SOLUTION = [
+KNOWN_SOLUTION_9X9 = [
     5, 3, 4, 6, 7, 8, 9, 1, 2,
     6, 7, 2, 1, 9, 5, 3, 4, 8,
     1, 9, 8, 3, 4, 2, 5, 6, 7,
@@ -30,65 +30,109 @@ KNOWN_SOLUTION = [
     3, 4, 5, 2, 8, 6, 1, 7, 9,
 ]
 
+KNOWN_PUZZLE_4X4 = [
+    1, 0, 0, 4,
+    0, 4, 1, 0,
+    2, 1, 0, 0,
+    0, 0, 2, 1,
+]
+
+KNOWN_SOLUTION_4X4 = [
+    1, 2, 3, 4,
+    3, 4, 1, 2,
+    2, 1, 4, 3,
+    4, 3, 2, 1,
+]
+
 
 class SudokuEngineTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.config = SudokuConfig.from_size(9)
-        self.solver = SudokuSolver(self.config)
+    def _assert_valid_solution_grid(self, board: list[int], config: SudokuConfig) -> None:
+        size = config.size
+        expected = set(range(1, size + 1))
 
-    def _assert_valid_solution_grid(self, board: list[int]) -> None:
-        self.assertEqual(len(board), 81)
-        expected = set(range(1, 10))
+        self.assertEqual(len(board), size * size)
 
-        for row in range(9):
-            values = board[row * 9:(row + 1) * 9]
-            self.assertEqual(set(values), expected, f"row {row} is invalid")
+        for row in range(size):
+            values = board[row * size : (row + 1) * size]
+            self.assertEqual(set(values), expected, f"row {row} is invalid for {size}x{size}")
 
-        for col in range(9):
-            values = [board[row * 9 + col] for row in range(9)]
-            self.assertEqual(set(values), expected, f"column {col} is invalid")
+        for col in range(size):
+            values = [board[row * size + col] for row in range(size)]
+            self.assertEqual(set(values), expected, f"column {col} is invalid for {size}x{size}")
 
-        for box_row in range(0, 9, 3):
-            for box_col in range(0, 9, 3):
+        for box_row in range(0, size, config.box_rows):
+            for box_col in range(0, size, config.box_cols):
                 values: list[int] = []
-                for row in range(box_row, box_row + 3):
-                    for col in range(box_col, box_col + 3):
-                        values.append(board[row * 9 + col])
-                self.assertEqual(set(values), expected, f"box ({box_row},{box_col}) is invalid")
+                for row in range(box_row, box_row + config.box_rows):
+                    for col in range(box_col, box_col + config.box_cols):
+                        values.append(board[row * size + col])
+                self.assertEqual(
+                    set(values),
+                    expected,
+                    f"box ({box_row},{box_col}) is invalid for {size}x{size}",
+                )
 
-    def test_solver_solves_known_instance(self) -> None:
-        solved = self.solver.solve(KNOWN_PUZZLE)
+    def test_config_maps_standard_sudoku_variants(self) -> None:
+        expected_map = {
+            4: (2, 2),
+            6: (2, 3),
+            9: (3, 3),
+            16: (4, 4),
+        }
+        for size, (box_rows, box_cols) in expected_map.items():
+            cfg = SudokuConfig.from_size(size)
+            self.assertEqual(cfg.box_rows, box_rows)
+            self.assertEqual(cfg.box_cols, box_cols)
+            self.assertEqual(cfg.num_range, size)
+
+    def test_config_rejects_unsupported_size(self) -> None:
+        with self.assertRaises(ValueError):
+            SudokuConfig.from_size(3)
+
+    def test_solver_solves_known_9x9_instance(self) -> None:
+        solver = SudokuSolver(SudokuConfig.from_size(9))
+        solved = solver.solve(KNOWN_PUZZLE_9X9)
         self.assertIsNotNone(solved)
-        self.assertEqual(solved, KNOWN_SOLUTION)
+        self.assertEqual(solved, KNOWN_SOLUTION_9X9)
 
-    def test_generator_returns_consistent_unique_puzzle(self) -> None:
-        state = create_puzzle(size=9, difficulty="easy", seed=123)
+    def test_solver_solves_known_4x4_instance(self) -> None:
+        solver = SudokuSolver(SudokuConfig.from_size(4))
+        solved = solver.solve(KNOWN_PUZZLE_4X4)
+        self.assertIsNotNone(solved)
+        self.assertEqual(solved, KNOWN_SOLUTION_4X4)
 
-        self.assertEqual(state.size, 9)
-        self.assertEqual(len(state.board), 81)
-        self.assertEqual(len(state.solution), 81)
-        self.assertEqual(len(state.initial), 81)
+    def test_generator_returns_consistent_unique_puzzle_for_supported_sizes(self) -> None:
+        for size in (4, 6, 9, 16):
+            with self.subTest(size=size):
+                state = create_puzzle(size=size, difficulty="easy", seed=100 + size)
+                solver = SudokuSolver(SudokuConfig.from_size(size))
+                total = size * size
 
-        given_count = 0
-        for idx, is_given in enumerate(state.initial):
-            if is_given:
-                given_count += 1
-                self.assertNotEqual(state.board[idx], 0)
-                self.assertEqual(state.board[idx], state.solution[idx])
-            else:
-                self.assertEqual(state.board[idx], 0)
+                self.assertEqual(state.size, size)
+                self.assertEqual(len(state.board), total)
+                self.assertEqual(len(state.solution), total)
+                self.assertEqual(len(state.initial), total)
 
-        self.assertGreater(given_count, 20)
-        self._assert_valid_solution_grid(state.solution)
-        self.assertEqual(self.solver.count_solutions(state.board, limit=2), 1)
+                given_count = 0
+                for idx, is_given in enumerate(state.initial):
+                    if is_given:
+                        given_count += 1
+                        self.assertNotEqual(state.board[idx], 0)
+                        self.assertEqual(state.board[idx], state.solution[idx])
+                    else:
+                        self.assertEqual(state.board[idx], 0)
+
+                self.assertGreater(given_count, size)
+                self._assert_valid_solution_grid(state.solution, state.config)
+                self.assertEqual(solver.count_solutions(state.board, limit=2), 1)
 
     def test_normalized_solver_result_for_known_instance(self) -> None:
-        result = self.solver.solve_result(KNOWN_PUZZLE, timeout=5.0, detect_multiple=True)
+        solver = SudokuSolver(SudokuConfig.from_size(9))
+        result = solver.solve_result(KNOWN_PUZZLE_9X9, timeout=5.0, detect_multiple=True)
         self.assertEqual(result.status, SolveStatus.SOLVED)
         self.assertEqual(result.solutions_found, 1)
-        self.assertEqual(result.solution, KNOWN_SOLUTION)
+        self.assertEqual(result.solution, KNOWN_SOLUTION_9X9)
 
 
 if __name__ == "__main__":
     unittest.main()
-

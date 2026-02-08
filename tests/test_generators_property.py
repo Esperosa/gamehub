@@ -13,15 +13,21 @@ from games.sudoku.engine import create_puzzle as create_sudoku_puzzle
 @settings(max_examples=8, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     seed=st.integers(min_value=0, max_value=100_000),
+    size=st.sampled_from([4, 6, 9, 16]),
     difficulty=st.sampled_from(["easy", "medium"]),
 )
-def test_sudoku_generator_returns_consistent_unique_puzzle(seed: int, difficulty: str) -> None:
-    state = create_sudoku_puzzle(size=9, difficulty=difficulty, seed=seed)
-    solver = SudokuSolver(SudokuConfig.from_size(9))
+def test_sudoku_generator_returns_consistent_unique_puzzle(
+    seed: int,
+    size: int,
+    difficulty: str,
+) -> None:
+    state = create_sudoku_puzzle(size=size, difficulty=difficulty, seed=seed)
+    solver = SudokuSolver(SudokuConfig.from_size(size))
+    total = size * size
 
-    assert len(state.board) == 81
-    assert len(state.initial) == 81
-    assert len(state.solution) == 81
+    assert len(state.board) == total
+    assert len(state.initial) == total
+    assert len(state.solution) == total
 
     for idx, is_given in enumerate(state.initial):
         if is_given:

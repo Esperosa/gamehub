@@ -24,7 +24,7 @@ class SudokuPlugin(BaseGamePlugin):
     meta = GameMeta(
         id="sudoku",
         name="Sudoku",
-        description="Klasické sudoku s volitelnou velikostí a obtížností",
+        description="Klasické sudoku varianty 4×4, 6×6, 9×9 a 16×16",
         version="1.0.0",
         author="GameHub",
         graphic_text="1 2 3",

@@ -2,7 +2,7 @@
 Sudoku UI - Modern game interface
 
 Features:
-- Multiple board sizes (4×4, 6×6, 9×9)
+- Multiple board sizes (4×4, 6×6, 9×9, 16×16)
 - Three difficulty levels
 - Keyboard and mouse wheel input
 - Hint system
@@ -12,6 +12,7 @@ Features:
 
 from __future__ import annotations
 
+import logging
 import math
 import random
 import time
@@ -46,6 +47,8 @@ _engine_spec.loader.exec_module(_engine_module)
 create_puzzle = _engine_module.create_puzzle
 SudokuState = _engine_module.SudokuState
 
+_log = logging.getLogger(__name__)
+
 
 # Colors
 COLOR_PRIMARY = QColor(110, 231, 255)  # Cyan
@@ -58,6 +61,12 @@ COLOR_HINT = QColor(255, 200, 87)  # Yellow - hint
 COLOR_BOX_LINE = QColor(255, 255, 255, 80)
 COLOR_GRID_LINE = QColor(255, 255, 255, 30)
 SUDOKU_DIFF_LABELS = {"easy": "Lehká", "medium": "Střední", "hard": "Těžká"}
+
+
+def _symbol_for_value(value: int) -> str:
+    if value <= 9:
+        return str(value)
+    return chr(ord("A") + value - 10)
 
 
 def _draw_print_sudoku(
@@ -125,7 +134,7 @@ def _draw_print_sudoku(
             if val == 0:
                 continue
             rect = QRectF(board_left + c * cell, board_top + r * cell, cell, cell)
-            painter.drawText(rect, Qt.AlignCenter, str(val))
+            painter.drawText(rect, Qt.AlignCenter, _symbol_for_value(val))
 
     painter.restore()
 
@@ -249,8 +258,9 @@ class SudokuBoard(QWidget):
         current = self.state.get(row, col)
         delta = 1 if event.angleDelta().y() > 0 else -1
 
-        # Cycle through values: 0 -> 1 -> 2 -> ... -> 9 -> 0 (always 1-9)
-        new_val = (current + delta) % 10
+        # Cycle through values: 0 -> 1 -> ... -> N -> 0
+        max_value = self.state.config.num_range
+        new_val = (current + delta) % (max_value + 1)
 
         self.state.set(row, col, new_val)
         self._notify_state_changed()
@@ -280,10 +290,9 @@ class SudokuBoard(QWidget):
                     self.state.set(row, col, 0)
                     self._notify_state_changed()
                     self._animate_cell(row, col)
-            elif Qt.Key_1 <= key <= Qt.Key_9:
-                # Always allow 1-9 for all sudoku sizes
-                num = key - Qt.Key_1 + 1
-                if not self.state.is_initial(row, col):
+            else:
+                num = self._value_from_event(event)
+                if num is not None and not self.state.is_initial(row, col):
                     self.state.set(row, col, num)
                     self._notify_state_changed()
                     self._animate_cell(row, col)
@@ -291,6 +300,31 @@ class SudokuBoard(QWidget):
 
             self.hint_cell = None
             self.update()
+
+    def _value_from_event(self, event) -> Optional[int]:
+        if not self.state:
+            return None
+
+        key = event.key()
+        value: Optional[int] = None
+        if Qt.Key_1 <= key <= Qt.Key_9:
+            value = key - Qt.Key_1 + 1
+        elif Qt.Key_A <= key <= Qt.Key_Z:
+            value = key - Qt.Key_A + 10
+        else:
+            text = event.text().strip().upper()
+            if len(text) == 1:
+                ch = text[0]
+                if "1" <= ch <= "9":
+                    value = int(ch)
+                elif "A" <= ch <= "Z":
+                    value = ord(ch) - ord("A") + 10
+
+        if value is None:
+            return None
+        if 1 <= value <= self.state.config.num_range:
+            return value
+        return None
 
     def _animate_cell(self, row: int, col: int) -> None:
         """Animate cell value change."""
@@ -467,11 +501,7 @@ class SudokuBoard(QWidget):
             painter.drawLine(int(x), int(top), int(x), int(top + board_size))
             painter.drawLine(int(left), int(y), int(left + board_size), int(y))
 
-        # Draw box lines (thicker)
-        # All sizes use 3×3 boxes:
-        # - 3×3: no box lines (entire grid is one box)
-        # - 6×6: cross pattern (1 vertical + 1 horizontal line)
-        # - 9×9: 2 vertical + 2 horizontal lines
+        # Draw sub-box lines (thicker)
         painter.setPen(QPen(COLOR_BOX_LINE, 2))
         # Vertical box lines: every box_cols columns
         num_box_cols = size // box_c  # Number of box columns
@@ -525,13 +555,7 @@ class SudokuBoard(QWidget):
 
                 painter.setPen(color)
 
-                # Number text (for 16×16 use hex-like: 1-9, A-G)
-                if val <= 9:
-                    text = str(val)
-                else:
-                    text = chr(ord("A") + val - 10)
-
-                painter.drawText(rect, Qt.AlignCenter, text)
+                painter.drawText(rect, Qt.AlignCenter, _symbol_for_value(val))
 
         # Confetti
         if self._confetti:
@@ -638,7 +662,7 @@ class SudokuWidget(QWidget):
         row.addWidget(lbl_size)
 
         self._size_buttons = {}
-        for size_key, size_label in [("3", "3×3"), ("6", "6×6"), ("9", "9×9")]:
+        for size_key, size_label in [("4", "4×4"), ("6", "6×6"), ("9", "9×9"), ("16", "16×16")]:
             btn = QPushButton(size_label)
             btn.setCheckable(True)
             btn.setMinimumWidth(55)
@@ -764,6 +788,14 @@ class SudokuWidget(QWidget):
         # Start game
         QTimer.singleShot(100, self.new_game)
 
+    @staticmethod
+    def _exc_info(exc: Exception):
+        return (type(exc), exc, exc.__traceback__)
+
+    def _report_runtime_error(self, user_message: str, exc: Exception) -> None:
+        _log.error("Sudoku runtime error.", exc_info=self._exc_info(exc))
+        QMessageBox.warning(self, "Sudoku", user_message)
+
     def _get_toggle_style(self) -> str:
         return """
             QPushButton {
@@ -822,7 +854,10 @@ class SudokuWidget(QWidget):
         except Exception as exc:
             self.lbl_status.setText("❌ Chyba generování")
             self.lbl_progress.setText("Zkus prosím Nová hra")
-            QMessageBox.warning(self, "Sudoku", f"Nepodařilo se vygenerovat puzzle:\n{exc}")
+            self._report_runtime_error(
+                "Nepodarilo se vygenerovat puzzle. Zkus to prosim znovu.",
+                exc,
+            )
             return
 
         self.board.set_state(state)
@@ -846,7 +881,7 @@ class SudokuWidget(QWidget):
 
     def _on_print(self) -> None:
         variants: List[VariantOption] = []
-        for size in (3, 6, 9):
+        for size in (4, 6, 9, 16):
             for diff in ("easy", "medium", "hard"):
                 variants.append(
                     VariantOption(
@@ -883,7 +918,13 @@ class SudokuWidget(QWidget):
                     return
                 try:
                     state = create_puzzle(size, diff)
-                except Exception:
+                except Exception as exc:
+                    _log.error(
+                        "Sudoku batch generation failed (size=%s, difficulty=%s).",
+                        size,
+                        diff,
+                        exc_info=self._exc_info(exc),
+                    )
                     state = None
 
                 if state is not None:
@@ -911,6 +952,7 @@ class SudokuWidget(QWidget):
         try:
             draw_square_batch(printer, items, dlg.puzzles_per_page(), _draw_print_sudoku)
         except Exception as exc:
+            _log.error("Sudoku print export failed.", exc_info=self._exc_info(exc))
             QMessageBox.critical(self, "Sudoku", f"Tisk se nepodařil:\n{exc}")
             return
 

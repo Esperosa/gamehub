@@ -12,42 +12,72 @@ All puzzles are guaranteed to have exactly one solution.
 from __future__ import annotations
 
 import random
-import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, Set
-from copy import deepcopy
 
 from hub.solver_contract import Hint, SolveStatus, SolverResult
 
 
+_SIZE_TO_BOX = {
+    4: (2, 2),
+    6: (2, 3),
+    9: (3, 3),
+    16: (4, 4),
+}
+
+_DIFFICULTY_EMPTY_RANGES = {
+    4: {
+        "easy": (0.30, 0.38),
+        "medium": (0.42, 0.50),
+        "hard": (0.52, 0.60),
+    },
+    6: {
+        "easy": (0.34, 0.42),
+        "medium": (0.47, 0.55),
+        "hard": (0.56, 0.64),
+    },
+    9: {
+        "easy": (0.35, 0.42),
+        "medium": (0.50, 0.57),
+        "hard": (0.60, 0.68),
+    },
+    16: {
+        "easy": (0.22, 0.28),
+        "medium": (0.29, 0.35),
+        "hard": (0.36, 0.42),
+    },
+}
+
+
 @dataclass
 class SudokuConfig:
-    """Configuration for a sudoku puzzle.
-    
-    All sudoku variants use numbers 1-9.
-    Box sizes create symmetric visual divisions:
-    - 3×3: 1 box (entire grid), numbers 1-9 (only 3 unique per row/col)
-    - 6×6: 4 boxes in 2×2 layout (each 3×3), cross pattern
-    - 9×9: 9 boxes in 3×3 layout (classic sudoku)
-    """
-    size: int  # 3, 6, or 9
-    box_rows: int = 3  # rows per box (always 3 for symmetric boxes)
-    box_cols: int = 3  # cols per box (always 3 for symmetric boxes)
-    
+    """Configuration for a Sudoku puzzle variant."""
+
+    size: int  # 4, 6, 9, or 16
+    box_rows: int
+    box_cols: int
+
+    def __post_init__(self) -> None:
+        if self.box_rows * self.box_cols != self.size:
+            raise ValueError(
+                f"Invalid Sudoku box geometry: {self.box_rows}x{self.box_cols} for size {self.size}."
+            )
+
     @property
     def num_range(self) -> int:
-        """Numbers used: always 1-9."""
-        return 9
-    
+        """Numbers used for this variant: 1..N."""
+        return self.size
+
     @staticmethod
-    def from_size(size: int) -> 'SudokuConfig':
-        """Create config with 3×3 boxes for all sizes."""
-        # All sizes use 3×3 boxes
-        # 3×3: 1 box total (the whole grid is one box)
-        # 6×6: 4 boxes (2×2 arrangement) - cross pattern dividers
-        # 9×9: 9 boxes (3×3 arrangement) - classic sudoku
-        return SudokuConfig(size=size, box_rows=3, box_cols=3)
+    def from_size(size: int) -> "SudokuConfig":
+        """Create config for supported standard Sudoku sizes."""
+        try:
+            box_rows, box_cols = _SIZE_TO_BOX[size]
+        except KeyError as exc:
+            supported = ", ".join(str(v) for v in sorted(_SIZE_TO_BOX))
+            raise ValueError(f"Unsupported Sudoku size {size}. Supported sizes: {supported}.") from exc
+        return SudokuConfig(size=size, box_rows=box_rows, box_cols=box_cols)
 
 
 @dataclass
@@ -68,7 +98,7 @@ class SudokuState:
     
     def set(self, row: int, col: int, value: int) -> None:
         idx = row * self.size + col
-        if not self.initial[idx]:
+        if not self.initial[idx] and 0 <= value <= self.config.num_range:
             self.board[idx] = value
     
     def is_initial(self, row: int, col: int) -> bool:
@@ -147,13 +177,11 @@ class SudokuState:
             if r != row and self.get(r, col) == val:
                 conflicts.add((r, col))
         
-        # Box conflicts - handle cases where box might extend beyond board
+        # Box conflicts
         box_start_r = (row // box_r) * box_r
         box_start_c = (col // box_c) * box_c
-        box_end_r = min(box_start_r + box_r, size)
-        box_end_c = min(box_start_c + box_c, size)
-        for r in range(box_start_r, box_end_r):
-            for c in range(box_start_c, box_end_c):
+        for r in range(box_start_r, box_start_r + box_r):
+            for c in range(box_start_c, box_start_c + box_c):
                 if (r, c) != (row, col) and self.get(r, c) == val:
                     conflicts.add((r, c))
         
@@ -176,12 +204,11 @@ class SudokuSolver:
         self.size = config.size
         self.box_r = config.box_rows
         self.box_c = config.box_cols
+        self.values = list(range(1, config.num_range + 1))
     
     def is_valid(self, board: List[int], row: int, col: int, num: int) -> bool:
         """Check if placing num at (row, col) is valid."""
         size = self.size
-        idx = row * size + col
-        
         # Row check
         for c in range(size):
             if board[row * size + c] == num:
@@ -192,13 +219,11 @@ class SudokuSolver:
             if board[r * size + col] == num:
                 return False
         
-        # Box check - handle cases where box might extend beyond board
+        # Box check
         box_start_r = (row // self.box_r) * self.box_r
         box_start_c = (col // self.box_c) * self.box_c
-        box_end_r = min(box_start_r + self.box_r, size)
-        box_end_c = min(box_start_c + self.box_c, size)
-        for r in range(box_start_r, box_end_r):
-            for c in range(box_start_c, box_end_c):
+        for r in range(box_start_r, box_start_r + self.box_r):
+            for c in range(box_start_c, box_start_c + self.box_c):
                 if board[r * size + c] == num:
                     return False
         
@@ -277,29 +302,18 @@ class SudokuSolver:
     
     def _solve_recursive(self, board: List[int]) -> bool:
         """Recursive backtracking solver."""
-        size = self.size
-        
-        # Find empty cell
-        empty_idx = -1
-        for i in range(size * size):
-            if board[i] == 0:
-                empty_idx = i
-                break
-        
+        empty_idx, candidates = self._next_empty_with_candidates(board)
         if empty_idx == -1:
             return True  # Solved
-        
-        row = empty_idx // size
-        col = empty_idx % size
-        
-        # Always use 1-9 for all sudoku sizes
-        for num in range(1, 10):
-            if self.is_valid(board, row, col, num):
-                board[empty_idx] = num
-                if self._solve_recursive(board):
-                    return True
-                board[empty_idx] = 0
-        
+        if not candidates:
+            return False
+
+        for num in candidates:
+            board[empty_idx] = num
+            if self._solve_recursive(board):
+                return True
+            board[empty_idx] = 0
+
         return False
     
     def count_solutions(self, board: List[int], limit: int = 2) -> int:
@@ -314,33 +328,44 @@ class SudokuSolver:
         """Returns True if should stop counting."""
         if self._solution_count >= self._solution_limit:
             return True
-        
-        size = self.size
-        
-        # Find empty cell with minimum remaining values (MRV heuristic)
-        empty_idx = -1
-        for i in range(size * size):
-            if board[i] == 0:
-                empty_idx = i
-                break
-        
+
+        empty_idx, candidates = self._next_empty_with_candidates(board)
         if empty_idx == -1:
             self._solution_count += 1
             return self._solution_count >= self._solution_limit
-        
-        row = empty_idx // size
-        col = empty_idx % size
-        
-        # Always use 1-9 for all sudoku sizes
-        for num in range(1, 10):
-            if self.is_valid(board, row, col, num):
-                board[empty_idx] = num
-                if self._count_recursive(board):
-                    board[empty_idx] = 0
-                    return True
+        if not candidates:
+            return False
+
+        for num in candidates:
+            board[empty_idx] = num
+            if self._count_recursive(board):
                 board[empty_idx] = 0
-        
+                return True
+            board[empty_idx] = 0
+
         return False
+
+    def _next_empty_with_candidates(self, board: List[int]) -> Tuple[int, List[int]]:
+        """Return (index, candidates) using MRV. index=-1 when solved."""
+        best_idx = -1
+        best_candidates: List[int] = []
+        size = self.size
+
+        for idx, value in enumerate(board):
+            if value != 0:
+                continue
+            row = idx // size
+            col = idx % size
+            candidates = [num for num in self.values if self.is_valid(board, row, col, num)]
+            if not candidates:
+                return idx, []
+            if best_idx == -1 or len(candidates) < len(best_candidates):
+                best_idx = idx
+                best_candidates = candidates
+                if len(best_candidates) == 1:
+                    break
+
+        return best_idx, best_candidates
 
 
 class SudokuGenerator:
@@ -373,44 +398,42 @@ class SudokuGenerator:
         )
     
     def _generate_complete(self, rng: random.Random) -> List[int]:
-        """Generate a complete valid sudoku board using backtracking."""
+        """Generate a complete valid Sudoku board using pattern + permutations."""
         size = self.size
+        box_r = self.config.box_rows
+        box_c = self.config.box_cols
+
+        row_group_count = size // box_r
+        col_group_count = size // box_c
+
+        row_groups = list(range(row_group_count))
+        col_groups = list(range(col_group_count))
+        rng.shuffle(row_groups)
+        rng.shuffle(col_groups)
+
+        rows: List[int] = []
+        cols: List[int] = []
+
+        for g in row_groups:
+            inner = list(range(box_r))
+            rng.shuffle(inner)
+            rows.extend(g * box_r + i for i in inner)
+
+        for g in col_groups:
+            inner = list(range(box_c))
+            rng.shuffle(inner)
+            cols.extend(g * box_c + i for i in inner)
+
+        symbols = list(range(1, size + 1))
+        rng.shuffle(symbols)
+
         board = [0] * (size * size)
-        
-        # Use pure backtracking with randomization - works for all sizes
-        self._solve_with_rng(board, rng)
-        
+        for out_r, src_r in enumerate(rows):
+            for out_c, src_c in enumerate(cols):
+                pattern_idx = (src_r * box_c + (src_r // box_r) + src_c) % size
+                board[out_r * size + out_c] = symbols[pattern_idx]
+
         return board
-    
-    def _solve_with_rng(self, board: List[int], rng: random.Random) -> bool:
-        """Solve board with randomized number order."""
-        size = self.size
-        
-        # Find empty cell
-        empty_idx = -1
-        for i in range(size * size):
-            if board[i] == 0:
-                empty_idx = i
-                break
-        
-        if empty_idx == -1:
-            return True
-        
-        row = empty_idx // size
-        col = empty_idx % size
-        
-        # Always use 1-9 for all sudoku sizes
-        nums = list(range(1, 10))
-        rng.shuffle(nums)
-        
-        for num in nums:
-            if self.solver.is_valid(board, row, col, num):
-                board[empty_idx] = num
-                if self._solve_with_rng(board, rng):
-                    return True
-                board[empty_idx] = 0
-        
-        return False
     
     def _remove_cells(self, board: List[int], difficulty: str, 
                       rng: random.Random) -> Tuple[List[int], List[bool]]:
@@ -423,31 +446,20 @@ class SudokuGenerator:
           - Corner/edge clues are easier starting points
           - Balanced distribution per row/col helps beginners
         
-        Target percentages (% of cells to leave empty):
-        - Easy:   35-42% empty - plenty of clues, easy deduction
-        - Medium: 50-57% empty - balanced challenge
-        - Hard:   60-68% empty - minimal clues, requires advanced techniques
+        Target percentages (% of cells to leave empty) are tuned per board size.
         """
         size = self.size
         total = size * size
-        
-        # Target empty cells based on difficulty with slight randomness
-        # The range allows for puzzle variation while keeping consistent difficulty
-        difficulty_targets = {
-            "easy":   (0.35, 0.42),
-            "medium": (0.50, 0.57),
-            "hard":   (0.60, 0.68)
-        }
-        
-        pct_min, pct_max = difficulty_targets.get(difficulty, (0.50, 0.57))
-        target_pct = rng.uniform(pct_min, pct_max)
-        
-        # Special case for 3x3: limited by unique solution constraint
-        if size == 3:
-            # 3×3 has only 9 cells, so we use fixed counts
-            target_empty = {"easy": 2, "medium": 4, "hard": 6}.get(difficulty, 4)
-        else:
-            target_empty = int(total * target_pct)
+
+        size_targets = _DIFFICULTY_EMPTY_RANGES.get(size)
+        if size_targets is None:
+            raise ValueError(f"No difficulty targets configured for Sudoku size {size}.")
+
+        pct_min, pct_max = size_targets.get(
+            difficulty,
+            size_targets["medium"],
+        )
+        target_empty = int(total * rng.uniform(pct_min, pct_max))
         
         initial = [True] * total
         removed = 0
