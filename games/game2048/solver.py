@@ -158,6 +158,97 @@ def max_tile_numba(grid):
 
 
 @njit
+def _count_tiles_and_pair_stats(grid, target):
+    """
+    Return (count, has_adjacent_pair, min_pair_distance) for target value.
+
+    min_pair_distance is only relevant when count >= 2.
+    """
+    rows = np.empty(16, dtype=np.int64)
+    cols = np.empty(16, dtype=np.int64)
+    count = 0
+    has_adjacent = False
+    min_dist = 99
+
+    for r in range(4):
+        for c in range(4):
+            if grid[r, c] == target:
+                rows[count] = r
+                cols[count] = c
+                count += 1
+
+    if count >= 2:
+        for i in range(count):
+            r = rows[i]
+            c = cols[i]
+            if r + 1 < 4 and grid[r + 1, c] == target:
+                has_adjacent = True
+            if c + 1 < 4 and grid[r, c + 1] == target:
+                has_adjacent = True
+
+        for i in range(count):
+            for j in range(i + 1, count):
+                dist = abs(rows[i] - rows[j]) + abs(cols[i] - cols[j])
+                if dist < min_dist:
+                    min_dist = dist
+
+    return count, has_adjacent, min_dist
+
+
+@njit
+def near_2048_potential_numba(grid):
+    """
+    Adaptive tactical bonus for building/merging 1024 pairs safely.
+
+    This is a soft objective:
+    - stronger when board is safe (more empties),
+    - weaker when board is cramped (to avoid suicidal play).
+    """
+    max_tile = max_tile_numba(grid)
+    if max_tile < 512:
+        return 0.0
+
+    empty_count = count_empty(grid)
+    safety = empty_count / 8.0
+    if safety > 1.0:
+        safety = 1.0
+    if safety < 0.15:
+        safety = 0.15
+
+    count_1024, adj_1024, dist_1024 = _count_tiles_and_pair_stats(grid, 1024)
+    count_512, adj_512, dist_512 = _count_tiles_and_pair_stats(grid, 512)
+    score = 0.0
+
+    if max_tile >= 1024:
+        score += count_1024 * 520.0
+        if adj_1024:
+            score += 4600.0
+        elif count_1024 >= 2:
+            proximity = 2600.0 - dist_1024 * 420.0
+            if proximity > 0.0:
+                score += proximity
+
+        score += count_512 * 140.0
+        if count_1024 == 1 and count_512 >= 2:
+            score += 900.0
+    else:
+        score += count_512 * 220.0
+        if adj_512:
+            score += 1700.0
+        elif count_512 >= 2:
+            proximity = 1200.0 - dist_512 * 180.0
+            if proximity > 0.0:
+                score += proximity
+
+    if grid[0, 0] == max_tile:
+        score += 350.0
+    elif max_tile >= 1024:
+        score -= 450.0
+
+    return score * safety
+
+
+@njit
 def log2_fast(x):
     """Fast log2 for integers."""
     if x <= 0:
@@ -237,6 +328,9 @@ def evaluate_grid_numba(grid, gradient_weights):
                     score += log2_fast(grid[r, c]) * 50.0
                 if r + 1 < 4 and grid[r, c] == grid[r + 1, c]:
                     score += log2_fast(grid[r, c]) * 50.0
+
+    # 8. ADAPTIVE NEAR-2048 INTENT
+    score += near_2048_potential_numba(grid)
     
     return score
 
@@ -405,6 +499,7 @@ class Solver2048:
             np_grid = np.asarray(grid, dtype=np.int64)
         
         empty_count = count_empty(np_grid)
+        max_tile = max_tile_numba(np_grid)
         
         if self.fast_mode:
             effective_depth = 3
@@ -416,6 +511,13 @@ class Solver2048:
             effective_depth = self.depth + 1
         else:
             effective_depth = self.depth
+
+        # Tactical deepening in late game when a 2048 setup is realistic.
+        if not self.fast_mode:
+            if max_tile >= 1024 and empty_count >= 3:
+                effective_depth = min(effective_depth + 1, 9)
+            elif max_tile >= 512 and empty_count >= 5:
+                effective_depth = min(effective_depth + 1, 9)
         
         move_int = get_best_move_numba(np_grid, effective_depth, GRADIENT_WEIGHTS)
         
