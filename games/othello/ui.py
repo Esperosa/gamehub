@@ -11,6 +11,7 @@ Features:
 from __future__ import annotations
 
 import importlib.util
+import logging
 import random
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
@@ -18,6 +19,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 from PySide6.QtCore import Qt, QTimer, QRectF, QVariantAnimation, QEasingCurve, QPointF
 from PySide6.QtGui import QColor, QPainter, QPen, QFont, QBrush, QLinearGradient, QRadialGradient
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
+from hub.worker import WorkerHandle, run_in_worker
 
 # Import engine from the same directory
 _this_dir = Path(__file__).resolve().parent
@@ -33,6 +35,8 @@ create_game = _engine_module.create_game
 BLACK = _engine_module.BLACK
 WHITE = _engine_module.WHITE
 EMPTY = _engine_module.EMPTY
+
+_log = logging.getLogger(__name__)
 
 
 COLOR_PRIMARY = QColor(110, 231, 255)
@@ -292,6 +296,8 @@ class OthelloWidget(QWidget):
         self._human_player = BLACK
         self._ai_player = WHITE
         self._ai_pending = False
+        self._ai_task: Optional[WorkerHandle] = None
+        self._ai_task_id = 0
 
         self._game = create_game()
         self._ai = OthelloAI(skill=self._difficulty)
@@ -468,7 +474,14 @@ class OthelloWidget(QWidget):
             return "Ty (Černá)"
         return "AI (Bílá)"
 
+    def _cancel_ai_task(self) -> None:
+        if self._ai_task is not None:
+            self._ai_task.cancel()
+            self._ai_task = None
+
     def new_game(self) -> None:
+        self._cancel_ai_task()
+        self._ai_task_id += 1
         self._ai_pending = False
         self._ai = OthelloAI(skill=self._difficulty)
         self._game = create_game()
@@ -533,21 +546,60 @@ class OthelloWidget(QWidget):
         self._board.set_valid_moves([])
         if not self._ai_pending:
             self._ai_pending = True
-            QTimer.singleShot(220, self._do_ai_move)
+            self._ai_task_id += 1
+            task_id = self._ai_task_id
+            QTimer.singleShot(220, lambda tid=task_id: self._do_ai_move(tid))
 
-    def _do_ai_move(self) -> None:
-        self._ai_pending = False
+    def _do_ai_move(self, task_id: int) -> None:
+        if task_id != self._ai_task_id:
+            return
         if self._game.game_over or self._game.current_player != self._ai_player:
+            self._ai_pending = False
             return
 
-        move = self._ai.choose_move(self._game, self._ai_player)
-        if move is None:
+        self._cancel_ai_task()
+        game_snapshot = self._game.clone()
+        ai = self._ai
+        ai_player = self._ai_player
+
+        def _pick_move() -> Optional[Tuple[int, int]]:
+            return ai.choose_move(game_snapshot, ai_player)
+
+        def _done(move: Optional[Tuple[int, int]]) -> None:
+            if task_id != self._ai_task_id:
+                return
+            self._ai_task = None
+            self._ai_pending = False
+            if self._game.game_over or self._game.current_player != self._ai_player:
+                return
+
+            if move is None:
+                self._advance_turn()
+                return
+
+            if not self._game.make_move(*move):
+                _log.warning("Othello AI returned an invalid move: %r", move)
+                self._advance_turn()
+                return
+
+            self._status_label.setText(f"AI zahrála: {self._coord_name(*move)}")
             self._advance_turn()
-            return
 
-        self._game.make_move(*move)
-        self._status_label.setText(f"AI zahrála: {self._coord_name(*move)}")
-        self._advance_turn()
+        def _error(exc: Exception) -> None:
+            if task_id != self._ai_task_id:
+                return
+            self._ai_task = None
+            self._ai_pending = False
+            self._status_label.setText("AI tah selhal, pokračuj ve hře.")
+            _log.error("Othello AI move failed.", exc_info=(type(exc), exc, exc.__traceback__))
+            self._advance_turn()
+
+        self._ai_task = run_in_worker(
+            fn=_pick_move,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
 
     def _show_game_over(self) -> None:
         black, white = self._game.score()
@@ -562,3 +614,12 @@ class OthelloWidget(QWidget):
         self._turn_label.setText("Konec hry")
         self._status_label.setText("Spusť novou hru pro další partii.")
         self._board.show_overlay(title, subtitle, "Nová hra", self.new_game)
+
+    # Lifecycle hooks (called by hub on mount/unmount)
+    def on_deactivate(self) -> None:
+        self._cancel_ai_task()
+        self._ai_task_id += 1
+        self._ai_pending = False
+
+    def dispose(self) -> None:
+        self.on_deactivate()

@@ -12,6 +12,7 @@ Features:
 
 from __future__ import annotations
 
+import logging
 import math
 import random
 import time
@@ -46,6 +47,8 @@ _solver_module = importlib.util.module_from_spec(_solver_spec)
 sys.modules["game2048_solver"] = _solver_module
 _solver_spec.loader.exec_module(_solver_module)
 Solver2048 = _solver_module.Solver2048
+
+_log = logging.getLogger(__name__)
 
 
 # Dark theme UI Colors
@@ -786,6 +789,9 @@ class Game2048Widget(QWidget):
         self._intro_timer: Optional[QTimer] = None
         self._intro_ticks_left = 0
         self._ai_status: Optional[str] = None
+        self._solver_step_task: Optional[WorkerHandle] = None
+        self._solver_step_task_id = 0
+        self._solver_step_pending = False
 
         self._setup_ui()
         self.new_game()
@@ -1082,6 +1088,7 @@ class Game2048Widget(QWidget):
     def _start_solving_loop(self) -> None:
         self._solving = True
         self._solve_after_warmup = False
+        self._solver_step_pending = False
         self._btn_solve.setText("⬛ Zastavit")
         self._btn_solve.setStyleSheet(self._solve_button_style(active=True))
         self._set_ai_status(None)
@@ -1094,8 +1101,16 @@ class Game2048Widget(QWidget):
         self._solve_timer.start(60)  # Check every 60ms
         self._update_display()
 
+    def _cancel_solver_step_task(self) -> None:
+        self._solver_step_task_id += 1
+        if self._solver_step_task is not None:
+            self._solver_step_task.cancel()
+            self._solver_step_task = None
+        self._solver_step_pending = False
+
     def _stop_solving(self) -> None:
         """Stop auto-solving."""
+        self._cancel_solver_step_task()
         if self._solve_timer:
             self._solve_timer.stop()
             self._solve_timer.deleteLater()
@@ -1124,18 +1139,58 @@ class Game2048Widget(QWidget):
         if self._board._animating:
             return
 
-        # Get best move from solver
-        solver_move = self._solver.get_move(self._board.game.grid)
-        if solver_move is None:
-            self._stop_solving()
+        if self._solver_step_pending:
             return
 
-        # Convert solver Direction to engine Direction (same values)
-        move = Direction(solver_move.value)
+        grid_snapshot = [row[:] for row in self._board.game.grid]
+        self._solver_step_pending = True
+        self._solver_step_task_id += 1
+        task_id = self._solver_step_task_id
 
-        # Execute the move with animation
-        self._board._execute_move(move)
-        self._update_display()
+        def _compute_move() -> Optional[object]:
+            return self._solver.get_move(grid_snapshot)
+
+        def _done(solver_move: Optional[object]) -> None:
+            if task_id != self._solver_step_task_id:
+                return
+            self._solver_step_task = None
+            self._solver_step_pending = False
+
+            if not self._solving or not self._board.game:
+                return
+            if self._board.game.game_over or self._board._overlay_visible:
+                self._stop_solving()
+                return
+            if self._board._animating:
+                return
+            if self._board.game.grid != grid_snapshot:
+                return
+
+            if solver_move is None:
+                self._stop_solving()
+                return
+
+            move = Direction(solver_move.value)
+            if not self._board._execute_move(move):
+                self._stop_solving()
+                return
+            self._update_display()
+
+        def _error(exc: Exception) -> None:
+            if task_id != self._solver_step_task_id:
+                return
+            self._solver_step_task = None
+            self._solver_step_pending = False
+            _log.error("2048 solver step failed.", exc_info=(type(exc), exc, exc.__traceback__))
+            self._set_ai_status("AI výpočet selhal")
+            self._stop_solving()
+
+        self._solver_step_task = run_in_worker(
+            fn=_compute_move,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
 
     def new_game(self) -> None:
         """Start a new game."""

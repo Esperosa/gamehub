@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 from hub.printing import BatchPrintDialog, VariantOption, create_output_printer, draw_square_batch
+from hub.worker import WorkerHandle, run_in_worker
 
 # Import engine from the same directory (avoid conflicts with piskvorky engine)
 _this_dir = Path(__file__).resolve().parent
@@ -780,6 +781,9 @@ class SudokuWidget(QWidget):
         self.game_complete = False
         self.start_time = 0
         self.hints_used = 0
+        self._gen_task: Optional[WorkerHandle] = None
+        self._gen_task_id = 0
+        self._generating = False
 
         # Initialize buttons
         self._update_size_buttons("9")
@@ -819,6 +823,22 @@ class SudokuWidget(QWidget):
             }
         """
 
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        for btn in self._size_buttons.values():
+            btn.setEnabled(enabled)
+        for btn in self._diff_buttons.values():
+            btn.setEnabled(enabled)
+        self.btn_new.setEnabled(enabled)
+        self.btn_print.setEnabled(enabled)
+        self.btn_hint.setEnabled(enabled and not self.game_complete)
+
+    def _cleanup_gen_thread(self) -> None:
+        self._gen_task_id += 1
+        if self._gen_task is not None:
+            self._gen_task.cancel()
+            self._gen_task = None
+        self._generating = False
+
     def _on_size_selected(self, size: str) -> None:
         self._update_size_buttons(size)
         self.size = int(size)
@@ -838,29 +858,59 @@ class SudokuWidget(QWidget):
             btn.setChecked(key == active)
 
     def new_game(self) -> None:
+        self._cleanup_gen_thread()
+
         self.game_complete = False
-        self.start_time = time.time()
         self.hints_used = 0
+        self._generating = True
 
         self.lbl_status.setText("⏳ Generuji puzzle...")
-        self.update()
+        self.lbl_progress.setText("")
+        self._set_controls_enabled(False)
+        self.board.setEnabled(False)
 
-        # Generate puzzle (use timer to not block UI)
-        QTimer.singleShot(50, self._generate_puzzle)
+        task_id = self._gen_task_id
+        size = self.size
+        difficulty = self.difficulty
 
-    def _generate_puzzle(self) -> None:
-        try:
-            state = create_puzzle(self.size, self.difficulty)
-        except Exception as exc:
-            self.lbl_status.setText("❌ Chyba generování")
-            self.lbl_progress.setText("Zkus prosím Nová hra")
+        def _generate() -> SudokuState:
+            return create_puzzle(size, difficulty)
+
+        def _done(state: SudokuState) -> None:
+            if task_id != self._gen_task_id:
+                return
+            self._gen_task = None
+            self._on_puzzle_ready(state)
+
+        def _error(exc: Exception) -> None:
+            if task_id != self._gen_task_id:
+                return
+            self._gen_task = None
             self._report_runtime_error(
                 "Nepodarilo se vygenerovat puzzle. Zkus to prosim znovu.",
                 exc,
             )
+            self._on_puzzle_ready(None)
+
+        self._gen_task = run_in_worker(
+            fn=_generate,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
+
+    def _on_puzzle_ready(self, state: Optional[SudokuState]) -> None:
+        self._generating = False
+        self.board.setEnabled(True)
+        self._set_controls_enabled(True)
+
+        if state is None:
+            self.lbl_status.setText("❌ Chyba generování")
+            self.lbl_progress.setText("Zkus prosím Nová hra")
             return
 
         self.board.set_state(state)
+        self.start_time = time.time()
 
         filled = state.count_filled()
         total = self.size * self.size
@@ -873,13 +923,17 @@ class SudokuWidget(QWidget):
         self.update()
 
     def _on_hint(self) -> None:
-        if self.game_complete:
+        if self.game_complete or self._generating:
             return
         self.board.show_hint()
         self.hints_used += 1
         self._update_progress()
 
     def _on_print(self) -> None:
+        if self._generating:
+            QMessageBox.information(self, "Sudoku", "Počkej na dokončení generování aktuální hry.")
+            return
+
         variants: List[VariantOption] = []
         for size in (4, 6, 9, 16):
             for diff in ("easy", "medium", "hard"):
@@ -984,3 +1038,12 @@ class SudokuWidget(QWidget):
 
         self.lbl_status.setText("🏆 Vyřešeno!")
         self.board.show_overlay("🎉 Gratulace!", f"Čas: {time_str}\n{hint_str}", self.new_game)
+
+    # Lifecycle hooks (called by hub on mount/unmount)
+    def on_deactivate(self) -> None:
+        self._cleanup_gen_thread()
+        self.board.setEnabled(True)
+        self._set_controls_enabled(True)
+
+    def dispose(self) -> None:
+        self.on_deactivate()

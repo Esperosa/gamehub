@@ -10,6 +10,7 @@ Features:
 """
 from __future__ import annotations
 
+import logging
 import math
 import random
 import time
@@ -24,8 +25,9 @@ from PySide6.QtGui import (
     QColor, QPainter, QPen, QFont, QLinearGradient
 )
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMessageBox
 )
+from hub.worker import WorkerHandle, run_in_worker
 
 # Import engine from the same directory
 _this_dir = Path(__file__).resolve().parent
@@ -42,6 +44,8 @@ NonogramPuzzle = _engine_module.NonogramPuzzle
 NonogramState = _engine_module.NonogramState
 NonogramSolver = _engine_module.NonogramSolver
 create_puzzle = _engine_module.create_puzzle
+
+_log = logging.getLogger(__name__)
 
 
 # Colors - matching other games
@@ -292,35 +296,31 @@ class NonogramBoard(QWidget):
             if self.on_complete:
                 self.on_complete()
     
-    def show_hint(self) -> bool:
+    def apply_hint(self, hint: Tuple[int, int, int]) -> bool:
         if not self.state:
             return False
-        
-        solver = NonogramSolver(self.state)
-        hint_obj = solver.get_hint_result()
-        if hint_obj and hint_obj.cells:
-            row, col = hint_obj.cells[0]
-            value = int(hint_obj.payload.get("value", 0))
-            hint = (row, col, value)
-        else:
-            hint = solver.get_hint()
-        
-        if hint:
-            row, col, value = hint
-            self.state.set_cell(row, col, value)
-            self.hint_cell = (row, col)
-            self._animate_cell(row, col)
-            self.update()
-            
-            if self.hint_timer:
-                self.hint_timer.stop()
-            self.hint_timer = QTimer(self)
-            self.hint_timer.setSingleShot(True)
-            self.hint_timer.timeout.connect(self._clear_hint)
-            self.hint_timer.start(2000)
-            
-            self._check_complete()
-            return True
+        row, col, value = hint
+        if not (0 <= row < self.state.puzzle.height and 0 <= col < self.state.puzzle.width):
+            return False
+
+        self.state.set_cell(row, col, value)
+        self.hint_cell = (row, col)
+        self._animate_cell(row, col)
+        self.update()
+
+        if self.hint_timer:
+            self.hint_timer.stop()
+        self.hint_timer = QTimer(self)
+        self.hint_timer.setSingleShot(True)
+        self.hint_timer.timeout.connect(self._clear_hint)
+        self.hint_timer.start(2000)
+
+        self._check_complete()
+        return True
+
+    def show_hint(self) -> bool:
+        # Hint solving moved to NonogramWidget worker thread; this path is intentionally disabled.
+        _log.warning("NonogramBoard.show_hint() is deprecated; use NonogramWidget._on_hint().")
         return False
     
     def _clear_hint(self) -> None:
@@ -614,6 +614,12 @@ class NonogramWidget(QWidget):
         self.hints_used = 0
         self.size = 10
         self.difficulty = "medium"
+        self._gen_task: Optional[WorkerHandle] = None
+        self._gen_task_id = 0
+        self._generating = False
+        self._hint_task: Optional[WorkerHandle] = None
+        self._hint_task_id = 0
+        self._hinting = False
         
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -741,6 +747,36 @@ class NonogramWidget(QWidget):
         self._diff_buttons["medium"].setChecked(True)
         
         self.new_game()
+
+    @staticmethod
+    def _exc_info(exc: Exception):
+        return (type(exc), exc, exc.__traceback__)
+
+    def _report_runtime_error(self, user_message: str, exc: Exception) -> None:
+        _log.error("Nonogram runtime error.", exc_info=self._exc_info(exc))
+        QMessageBox.warning(self, "Nonogram", user_message)
+
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        for btn in self._size_buttons.values():
+            btn.setEnabled(enabled)
+        for btn in self._diff_buttons.values():
+            btn.setEnabled(enabled)
+        self.btn_new.setEnabled(enabled)
+        self.btn_hint.setEnabled(enabled and not self.game_complete and not self._hinting)
+
+    def _cleanup_gen_thread(self) -> None:
+        self._gen_task_id += 1
+        if self._gen_task is not None:
+            self._gen_task.cancel()
+            self._gen_task = None
+        self._generating = False
+
+    def _cleanup_hint_thread(self) -> None:
+        self._hint_task_id += 1
+        if self._hint_task is not None:
+            self._hint_task.cancel()
+            self._hint_task = None
+        self._hinting = False
     
     def _get_toggle_style(self) -> str:
         return """
@@ -765,34 +801,142 @@ class NonogramWidget(QWidget):
         """
     
     def _on_size_selected(self, size: str) -> None:
+        if self._generating:
+            return
         for key, btn in self._size_buttons.items():
             btn.setChecked(key == size)
         self.size = int(size)
         self.new_game()
     
     def _on_diff_selected(self, diff: str) -> None:
+        if self._generating:
+            return
         for key, btn in self._diff_buttons.items():
             btn.setChecked(key == diff)
         self.difficulty = diff
         self.new_game()
     
     def new_game(self) -> None:
+        self._cleanup_gen_thread()
+        self._cleanup_hint_thread()
+
         self.game_complete = False
-        self.start_time = time.time()
         self.hints_used = 0
-        
-        state = create_puzzle(self.size, self.difficulty)
+        self._generating = True
+
+        self.lbl_status.setText("⏳ Generuji puzzle...")
+        self.lbl_progress.setText("")
+        self.board.setEnabled(False)
+        self._set_controls_enabled(False)
+
+        task_id = self._gen_task_id
+        size = self.size
+        difficulty = self.difficulty
+
+        def _generate() -> Optional[NonogramState]:
+            return create_puzzle(size, difficulty)
+
+        def _done(state: Optional[NonogramState]) -> None:
+            if task_id != self._gen_task_id:
+                return
+            self._gen_task = None
+            self._on_puzzle_ready(state)
+
+        def _error(exc: Exception) -> None:
+            if task_id != self._gen_task_id:
+                return
+            self._gen_task = None
+            self._report_runtime_error(
+                "Generování puzzle selhalo. Zkus to prosím znovu.",
+                exc,
+            )
+            self._on_puzzle_ready(None)
+
+        self._gen_task = run_in_worker(
+            fn=_generate,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
+
+    def _on_puzzle_ready(self, state: Optional[NonogramState]) -> None:
+        self._generating = False
+        self.board.setEnabled(True)
+        self._set_controls_enabled(True)
+
+        if state is None:
+            self.lbl_status.setText("❌ Chyba generování")
+            self.lbl_progress.setText("Zkus prosím Nová hra")
+            return
+
         self.board.set_state(state)
-        
+        self.start_time = time.time()
         self.lbl_status.setText(f"🧩 {self.size}×{self.size}")
         self.lbl_progress.setText("LMB = vyplnit · RMB = označit ✕")
     
     def _on_hint(self) -> None:
-        if self.game_complete:
+        if self.game_complete or self._generating or self._hinting:
             return
-        if self.board.show_hint():
-            self.hints_used += 1
-            self._update_progress()
+        if not self.board.state:
+            return
+
+        self._cleanup_hint_thread()
+        self._hinting = True
+        self.btn_hint.setEnabled(False)
+        self.lbl_status.setText("💡 Hledám nápovědu...")
+
+        task_id = self._hint_task_id
+        snapshot = NonogramState(
+            puzzle=self.board.state.puzzle,
+            grid=[row[:] for row in self.board.state.grid],
+        )
+
+        def _compute_hint() -> Optional[Tuple[int, int, int]]:
+            solver = NonogramSolver(snapshot)
+            hint_obj = solver.get_hint_result()
+            if hint_obj and hint_obj.cells:
+                row, col = hint_obj.cells[0]
+                value = int(hint_obj.payload.get("value", 0))
+                return (row, col, value)
+            return solver.get_hint()
+
+        def _done(hint: Optional[Tuple[int, int, int]]) -> None:
+            if task_id != self._hint_task_id:
+                return
+            self._hint_task = None
+            self._hinting = False
+            self.btn_hint.setEnabled(not self.game_complete and not self._generating)
+            if hint is None:
+                self.lbl_status.setText(f"🧩 {self.size}×{self.size}")
+                self.lbl_progress.setText("💡 Nápověda není dostupná.")
+                return
+
+            if self.board.apply_hint(hint):
+                self.hints_used += 1
+                self.lbl_status.setText(f"🧩 {self.size}×{self.size}")
+                self._update_progress()
+            else:
+                self.lbl_status.setText(f"🧩 {self.size}×{self.size}")
+                self.lbl_progress.setText("💡 Nápovědu nešlo použít.")
+
+        def _error(exc: Exception) -> None:
+            if task_id != self._hint_task_id:
+                return
+            self._hint_task = None
+            self._hinting = False
+            self.btn_hint.setEnabled(not self.game_complete and not self._generating)
+            self.lbl_status.setText(f"🧩 {self.size}×{self.size}")
+            self._report_runtime_error(
+                "Výpočet nápovědy selhal. Zkus to prosím znovu.",
+                exc,
+            )
+
+        self._hint_task = run_in_worker(
+            fn=_compute_hint,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
     
     def _update_progress(self) -> None:
         if not self.board.state:
@@ -817,3 +961,13 @@ class NonogramWidget(QWidget):
             f"Čas: {time_str}\n{hint_str}",
             self.new_game
         )
+
+    # Lifecycle hooks (called by hub on mount/unmount)
+    def on_deactivate(self) -> None:
+        self._cleanup_gen_thread()
+        self._cleanup_hint_thread()
+        self.board.setEnabled(True)
+        self._set_controls_enabled(True)
+
+    def dispose(self) -> None:
+        self.on_deactivate()
