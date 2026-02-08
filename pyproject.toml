@@ -9,7 +9,9 @@ exclude = [
     "dist",
 ]
 include = [
+    "games/*/plugin.py",
     "hub/plugin_api.py",
+    "hub/plugin_loader.py",
     "hub/solver_contract.py",
     "hub/layer_loader.py",
     "games/game2048/engine.py",
@@ -17,7 +19,9 @@ include = [
     "games/othello/engine.py",
     "games/piskvorky/engine.py",
     "games/simon/engine.py",
+    "games/sudoku/engine.py",
     "tests/test_generators_property.py",
+    "tests/test_sudoku_engine.py",
 ]
 
 [tool.ruff.lint]
@@ -32,14 +36,25 @@ ignore_missing_imports = true
 follow_imports = "silent"
 warn_unused_configs = true
 files = [
+    "games/game2048/plugin.py",
     "hub/plugin_api.py",
+    "hub/plugin_loader.py",
     "hub/solver_contract.py",
     "hub/layer_loader.py",
     "games/game2048/engine.py",
+    "games/kenken/plugin.py",
     "games/mastermind/engine.py",
+    "games/mastermind/plugin.py",
+    "games/nonogram/plugin.py",
     "games/othello/engine.py",
+    "games/othello/plugin.py",
     "games/piskvorky/engine.py",
+    "games/piskvorky/plugin.py",
     "games/simon/engine.py",
+    "games/simon/plugin.py",
+    "games/slitherlink/plugin.py",
+    "games/sudoku/engine.py",
+    "games/sudoku/plugin.py",
 ]
 
 [tool.pytest.ini_options]

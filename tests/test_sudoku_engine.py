@@ -5,7 +5,6 @@ import unittest
 from games.sudoku.engine import SudokuConfig, SudokuSolver, SudokuState, create_puzzle
 from hub.solver_contract import SolveStatus
 
-
 KNOWN_PUZZLE_9X9 = [
     5, 3, 0, 0, 7, 0, 0, 0, 0,
     6, 0, 0, 1, 9, 5, 0, 0, 0,
