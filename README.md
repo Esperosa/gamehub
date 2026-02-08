@@ -47,8 +47,20 @@
 
 ## Implementace vs Knihovny
 
-- Přehled co je autorská logika a co je delegované na knihovny: `docs/author_vs_libraries.md`
-- Obsahuje tabulky po hrách + knihovnách a orientační graf odpovědností.
+GameHub je Python-first: rozhodovací AI/solver logika je implementovaná v projektu, knihovny jsou použité hlavně jako runtime framework, akcelerace a tooling.
+
+| Oblast | Vlastní implementace | Delegované na knihovny |
+|---|---|---|
+| Herní AI (2048, Othello, Piškvorky) | `expectimax`, `minimax`, `alpha-beta`, heuristiky | Žádný ML framework (`PyTorch`/`TensorFlow` se nepoužívá) |
+| Puzzle solvery (Sudoku, KenKen, Nonogram) | CSP/backtracking, MRV, propagace, branching | `numba`/`numpy` pouze pro výkon dat/výpočtů |
+| Slitherlink uniqueness | CNF model + validace smyčky + integrace | `python-sat` řeší samotné SAT prohledávání |
+| Desktop UI | herní widgety, plugin lifecycle, stav hry | `PySide6` (okna, event loop, rendering) |
+
+Textový graf odpovědností (orientační):
+- Autorská logika her/AI/solverů: `███████████████░░░░░` `~75%`
+- Framework/infra/akcelerace: `█████░░░░░░░░░░░░░░░` `~25%`
+
+Detailní rozpad po hrách a knihovnách: `docs/author_vs_libraries.md`
 
 ## Branding Repozitáře
 
