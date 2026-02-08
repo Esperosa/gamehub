@@ -19,9 +19,19 @@
   <img src="docs/media/repo_hero.png" alt="GameHub hero" width="100%" />
 </p>
 
-<p align="center">
-  <img src="docs/media/showcase.gif" alt="GameHub animated showcase" width="100%" />
-</p>
+## Gameplay Preview (4s Clips)
+
+| 2048 | KenKen | Mastermind |
+|---|---|---|
+| ![2048 gameplay](docs/media/clips/game2048.gif) | ![KenKen gameplay](docs/media/clips/kenken.gif) | ![Mastermind gameplay](docs/media/clips/mastermind.gif) |
+
+| Nonogram | Othello | Piskvorky |
+|---|---|---|
+| ![Nonogram gameplay](docs/media/clips/nonogram.gif) | ![Othello gameplay](docs/media/clips/othello.gif) | ![Piskvorky gameplay](docs/media/clips/piskvorky.gif) |
+
+| Simon | Slitherlink | Sudoku |
+|---|---|---|
+| ![Simon gameplay](docs/media/clips/simon.gif) | ![Slitherlink gameplay](docs/media/clips/slitherlink.gif) | ![Sudoku gameplay](docs/media/clips/sudoku.gif) |
 
 ## Quick Links
 
@@ -32,8 +42,10 @@
 ## GitHub Branding
 
 - Social preview obrazek: `docs/media/social_preview.png`
-- README hero set: `docs/media/repo_hero.png` + `docs/media/showcase.gif`
+- README hero: `docs/media/repo_hero.png`
+- Gameplay klipy (4s): `docs/media/clips/*.gif`
 - Regenerace assetu: `python scripts/generate_repo_branding.py --output-dir docs/media`
+- Regenerace gameplay klipu: `python scripts/generate_gameplay_clips.py --output-dir docs/media/clips`
 - Manual pro repo branding: `docs/repository_branding.md`
 
 ## Download
@@ -87,6 +99,12 @@ Branding hero/social preview assety:
 .venv\Scripts\python scripts/generate_repo_branding.py --output-dir docs/media
 ```
 
+Gameplay klipy (4s, každá hra):
+
+```bash
+.venv\Scripts\python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 4 --fps 8
+```
+
 | Hub | 2048 |
 |---|---|
 | ![Hub](docs/media/home.png) | ![2048](docs/media/game2048.png) |
@@ -137,6 +155,7 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - `docs/sudoku_generation_performance.md` - srovnání variant generování Sudoku 16x16 hard a výsledky benchmarku
 - `docs/print_export_samples.md` - jak vznikají print dialog screenshoty a PDF sample exporty
 - `docs/repository_branding.md` - jak regenerovat README hero/social preview assety
+- `scripts/generate_gameplay_clips.py` - automatická tvorba 4s gameplay klipů pro README
 - `benchmarks/README.md` - benchmark artefakty a jejich kontext
 
 ## Co v aplikaci je

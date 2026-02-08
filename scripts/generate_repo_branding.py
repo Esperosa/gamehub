@@ -175,7 +175,7 @@ def _draw_logo_text(p: QPainter, rect: QRectF, logo: QImage) -> None:
             logo_rect.height() * 0.46,
         ),
         Qt.AlignLeft | Qt.AlignTop,
-        "Stylovy launcher logickych her, AI modu a PDF exportu.",
+        "Stylový launcher logických her, AI módů a PDF exportů.",
     )
 
     body_font = QFont("Segoe UI")
@@ -183,7 +183,7 @@ def _draw_logo_text(p: QPainter, rect: QRectF, logo: QImage) -> None:
     p.setFont(body_font)
     p.setPen(QColor("#d3e2f7"))
     description = (
-        "9 her v jednotnem design systemu, plynule UI, tisk/PDF, plugin architektura "
+        "9 her v jednotném design systému, plynulé UI, tisk/PDF, plugin architektura "
         "a release-ready desktop build pipeline."
     )
     p.drawText(

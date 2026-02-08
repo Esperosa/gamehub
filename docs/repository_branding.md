@@ -5,13 +5,19 @@ Tento projekt ma pripraveny branding set pro GitHub profil repozitare.
 ## Generovane assety
 
 - `docs/media/repo_hero.png` - hlavni README hero obrazek (`1600x900`)
-- `docs/media/showcase.gif` - lehky animovany showcase her (`1280x720`)
 - `docs/media/social_preview.png` - GitHub social preview (`1280x640`)
+- `docs/media/clips/*.gif` - kratke 4s gameplay klipy pro vsechny hry (`960x540`)
 
 ## Regenerace
 
 ```bash
 .venv\Scripts\python scripts/generate_repo_branding.py --output-dir docs/media
+```
+
+Gameplay klipy:
+
+```bash
+.venv\Scripts\python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 4 --fps 8
 ```
 
 Vstupni zdroje:
@@ -23,6 +29,8 @@ Vstupni zdroje:
 - `docs/media/kenken.png`
 - `docs/media/slitherlink.png`
 - `docs/media/game2048.png`
+
+Gameplay klipy vyzaduji bezici Qt GUI prostredi, proto se generuji jako samostatny krok.
 
 ## Nastaveni na GitHubu
 
