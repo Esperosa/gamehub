@@ -31,14 +31,6 @@ manifest = PluginManifest(
     id="kenken",
     name="KenKen",
     description="Logická hra s klecemi a aritmetickými operacemi",
-    name_i18n={
-        "cs": "KenKen",
-        "en": "KenKen",
-    },
-    description_i18n={
-        "cs": "Logická hra s klecemi a aritmetickými operacemi",
-        "en": "Arithmetic cage puzzle with + - * / operations",
-    },
     version="1.0.0",
     author="GameHub",
     graphic_text="6× 3+",

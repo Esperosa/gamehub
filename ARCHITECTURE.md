@@ -89,9 +89,6 @@ Tyto moduly používají `hub/layer_loader.py` (`load_module_from_file`, `reexpo
    - `ui.py`
    - `engine.py` (doporučeno)
 3. Přidej metadata (`id`, `name`, `description`, `graphic_text` nebo `icon_path`).
-4. Volitelně přidej i lokalizovaná metadata:
-   - `name_i18n={"cs": "...", "en": "..."}`
-   - `description_i18n={"cs": "...", "en": "..."}`
 4. Ověř načtení přes:
    - `python tester.py --plugins-only`
 5. Přidej testy do `tests/` nebo `games/mygame/tester.py` (`run_audit()`).
@@ -127,8 +124,6 @@ manifest = PluginManifest(
     id="mygame",
     name="My Game",
     description="Krátký popis hry",
-    name_i18n={"cs": "Moje hra", "en": "My Game"},
-    description_i18n={"cs": "Krátký popis hry", "en": "Short game description"},
     version="0.1.0",
     author="Your Name",
     graphic_text="★",

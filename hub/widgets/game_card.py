@@ -17,7 +17,6 @@ class GameCard(QFrame):
         on_click: Optional[Callable[[], None]] = None,
         icon: Optional[QIcon] = None,
         graphic_text: Optional[str] = None,
-        play_hint_text: str = "▶ Hrát",
         parent=None,
     ):
         super().__init__(parent)
@@ -65,7 +64,7 @@ class GameCard(QFrame):
         lay.addWidget(self._title_label, 1)
 
         # Play hint at bottom
-        self._play_hint = QLabel(play_hint_text)
+        self._play_hint = QLabel("▶ Hrát")
         self._play_hint.setAlignment(Qt.AlignCenter)
         lay.addWidget(self._play_hint)
 

@@ -31,14 +31,6 @@ manifest = PluginManifest(
     id="piskvorky",
     name="Piškvorky",
     description="Klasické piškvorky na různých deskách s AI botem.",
-    name_i18n={
-        "cs": "Piškvorky",
-        "en": "Gomoku",
-    },
-    description_i18n={
-        "cs": "Klasické piškvorky na různých deskách s AI botem.",
-        "en": "Classic Gomoku on multiple board sizes with an AI bot",
-    },
     version="0.1.0",
     author="GameHub",
     graphic_text="✕ ◯ ✕",

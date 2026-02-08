@@ -5,10 +5,9 @@ import time
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import QLocale, QSignalBlocker, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -23,8 +22,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from hub.i18n import normalize_language, tr
-from hub.plugin_api import resolve_i18n_text
 from hub.plugin_loader import LoadedPlugin, discover_plugins
 from hub.theme import apply_theme
 from hub.widgets.background import AnimatedBackground
@@ -38,22 +35,11 @@ _log = logging.getLogger(__name__)
 class HomePage(QWidget):
     """Home page with 3×3 grid of game cards (9 games total)."""
     
-    def __init__(
-        self,
-        plugins: List[LoadedPlugin],
-        on_open,
-        loading: bool = False,
-        card_width: int = 160,
-        language: str = "cs",
-        play_hint_text: str = "▶ Hrát",
-        parent=None,
-    ):
+    def __init__(self, plugins: List[LoadedPlugin], on_open, loading: bool = False, card_width: int = 160, parent=None):
         super().__init__(parent)
         self._plugins = plugins
         self._on_open = on_open
         self._loading = loading
-        self._language = normalize_language(language)
-        self._play_hint_text = play_hint_text
         self._cols = 3  # Fixed 3 columns
         self._rows = 3  # Fixed 3 rows
         self._total_slots = 9  # Always 9 slots for 9 games
@@ -93,27 +79,18 @@ class HomePage(QWidget):
                     icon_file = lp.folder / lp.manifest.icon_path
                     if icon_file.exists():
                         icon = QIcon(str(icon_file))
-                display_name = resolve_i18n_text(lp.manifest.name_i18n, self._language, lp.manifest.name)
-                display_desc = resolve_i18n_text(lp.manifest.description_i18n, self._language, lp.manifest.description)
                 graphic = getattr(lp.manifest, 'graphic_text', None)
                 if self._on_open:
                     card = GameCard(
-                        display_name,
-                        display_desc,
+                        lp.manifest.name,
+                        lp.manifest.description,
                         on_click=lambda lp=lp: self._on_open(lp),
                         icon=icon,
                         graphic_text=graphic,
-                        play_hint_text=self._play_hint_text,
                     )
                 else:
-                    card = GameCard(
-                        display_name,
-                        display_desc,
-                        on_click=None,
-                        icon=icon,
-                        graphic_text=graphic,
-                        play_hint_text=self._play_hint_text,
-                    )
+                    card = GameCard(lp.manifest.name, lp.manifest.description, 
+                                   on_click=None, icon=icon, graphic_text=graphic)
                 # Force equal cell sizing in the 3x3 grid regardless of card content hints.
                 card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
                 self._cards.append(card)
@@ -169,47 +146,6 @@ class MainWindow(QMainWindow):
         self._main_layout.setContentsMargins(24, 20, 24, 20)
         self._main_layout.setSpacing(12)
 
-        self._language = self._default_language()
-        self._settings_error_notified = False
-        self._last_runs_error_notified = False
-        self._active_plugin_loaded: Optional[LoadedPlugin] = None
-        self._active_back_button: Optional[QPushButton] = None
-        self._active_plugin_title_label: Optional[QLabel] = None
-
-        settings = self._load_settings()
-        configured_lang = settings.get("language")
-        if isinstance(configured_lang, str):
-            self._language = normalize_language(configured_lang)
-
-        self._header = QFrame()
-        self._header.setObjectName("TopBar")
-        self._header_l = QHBoxLayout(self._header)
-        self._header_l.setContentsMargins(12, 10, 12, 10)
-        self._header_l.setSpacing(10)
-
-        self._header_title = QLabel()
-        self._header_title.setObjectName("Header2")
-        self._header_subtitle = QLabel()
-
-        header_texts = QVBoxLayout()
-        header_texts.setContentsMargins(0, 0, 0, 0)
-        header_texts.setSpacing(0)
-        header_texts.addWidget(self._header_title)
-        header_texts.addWidget(self._header_subtitle)
-        self._header_l.addLayout(header_texts)
-        self._header_l.addStretch(1)
-
-        self._lang_label = QLabel()
-        self._language_combo = QComboBox()
-        self._language_combo.setObjectName("LangCombo")
-        self._language_combo.addItem("", "cs")
-        self._language_combo.addItem("", "en")
-        self._language_combo.currentIndexChanged.connect(self._on_language_combo_changed)
-
-        self._header_l.addWidget(self._lang_label)
-        self._header_l.addWidget(self._language_combo)
-        self._main_layout.addWidget(self._header)
-
         # Stack (no sidebar - cleaner UI)
         self._stack = QStackedWidget()
         self._main_layout.addWidget(self._stack, 1)
@@ -219,23 +155,15 @@ class MainWindow(QMainWindow):
         self._active_plugin_page: Optional[QWidget] = None
         self._active_plugin_widget: Optional[QWidget] = None
 
-        self._loading_home = HomePage(
-            [],
-            on_open=None,
-            loading=True,
-            card_width=200,
-            language=self._language,
-            play_hint_text=self._tr("play_hint"),
-        )
+        self._loading_home = HomePage([], on_open=None, loading=True, card_width=200)
         self._stack.addWidget(self._loading_home)
         self._stack.setCurrentWidget(self._loading_home)
 
         if self._app is not None:
             apply_theme(self._app, font_size=10, theme="midnight")
 
+        self._last_runs_error_notified = False
         self._last_runs = self._load_last_runs()
-        self._apply_language_to_ui()
-        self._set_language_combo_value(self._language)
 
         self._reload_plugins(initial=True)
 
@@ -252,15 +180,6 @@ class MainWindow(QMainWindow):
     def _games_dir(self) -> Path:
         return Path(__file__).resolve().parents[1] / "games"
 
-    def _default_language(self) -> str:
-        locale_name = QLocale.system().name().lower()
-        if locale_name.startswith("cs"):
-            return "cs"
-        return "en"
-
-    def _tr(self, key: str, **kwargs: object) -> str:
-        return tr(self._language, key, **kwargs)
-
     def _app_data_dir(self) -> Path:
         app_data = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
         if not app_data:
@@ -269,44 +188,8 @@ class MainWindow(QMainWindow):
         p.mkdir(parents=True, exist_ok=True)
         return p
 
-    def _settings_path(self) -> Path:
-        return self._app_data_dir() / "settings.json"
-
     def _last_runs_path(self) -> Path:
         return self._app_data_dir() / "last_runs.json"
-
-    def _load_settings(self) -> dict:
-        try:
-            p = self._settings_path()
-            if not p.exists():
-                return {}
-            import json
-
-            data = json.loads(p.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-            _log.warning("Invalid settings payload at %s: expected object, got %s.", p, type(data).__name__)
-            return {}
-        except Exception as exc:
-            self._report_settings_error(exc)
-            return {}
-
-    def _save_settings(self, settings: dict) -> None:
-        try:
-            import json
-
-            p = self._settings_path()
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(settings, ensure_ascii=False), encoding="utf-8")
-        except Exception as exc:
-            self._report_settings_error(exc)
-
-    def _report_settings_error(self, exc: Exception) -> None:
-        _log.error("Failed to read/write runtime settings.", exc_info=self._exc_info(exc))
-        if self._settings_error_notified:
-            return
-        self._settings_error_notified = True
-        QMessageBox.warning(self, self._tr("dialog_title"), self._tr("settings_io_failed"))
 
     @staticmethod
     def _exc_info(exc: Exception):
@@ -317,7 +200,14 @@ class MainWindow(QMainWindow):
         if self._last_runs_error_notified:
             return
         self._last_runs_error_notified = True
-        QMessageBox.warning(self, self._tr("dialog_title"), self._tr("last_runs_io_failed"))
+        QMessageBox.warning(
+            self,
+            "GameHub",
+            (
+                "Nepodarilo se nacist nebo ulozit historii poslednich spusteni. "
+                "Razeni her podle posledniho spusteni nemusi fungovat."
+            ),
+        )
 
     def _load_last_runs(self) -> dict:
         try:
@@ -345,58 +235,10 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._report_last_runs_error(exc)
 
-    def _plugin_name(self, lp: LoadedPlugin) -> str:
-        return resolve_i18n_text(lp.manifest.name_i18n, self._language, lp.manifest.name)
-
-    def _plugin_description(self, lp: LoadedPlugin) -> str:
-        return resolve_i18n_text(lp.manifest.description_i18n, self._language, lp.manifest.description)
-
-    def _set_language_combo_value(self, language: str) -> None:
-        target = normalize_language(language)
-        idx = self._language_combo.findData(target)
-        if idx < 0:
-            idx = self._language_combo.findData("cs")
-        with QSignalBlocker(self._language_combo):
-            self._language_combo.setCurrentIndex(idx)
-
-    def _apply_language_to_ui(self) -> None:
-        self._header_title.setText(self._tr("header_title"))
-        self._header_subtitle.setText(self._tr("header_subtitle"))
-        self._lang_label.setText(f"{self._tr('language_label')}:")
-        with QSignalBlocker(self._language_combo):
-            for i in range(self._language_combo.count()):
-                lang = self._language_combo.itemData(i)
-                if lang == "cs":
-                    self._language_combo.setItemText(i, self._tr("language_cs"))
-                elif lang == "en":
-                    self._language_combo.setItemText(i, self._tr("language_en"))
-        if self._active_back_button is not None:
-            self._active_back_button.setText(self._tr("back"))
-        if self._active_plugin_title_label is not None and self._active_plugin_loaded is not None:
-            self._active_plugin_title_label.setText(self._plugin_name(self._active_plugin_loaded))
-
-    def _set_language(self, language: str, persist: bool = True) -> None:
-        new_lang = normalize_language(language)
-        if new_lang == self._language:
-            self._apply_language_to_ui()
-            self._set_language_combo_value(new_lang)
-            return
-        self._language = new_lang
-        self._apply_language_to_ui()
-        self._set_language_combo_value(new_lang)
-        if persist:
-            self._save_settings({"language": self._language})
-        self._rebuild_home()
-
-    def _on_language_combo_changed(self, index: int) -> None:
-        lang = self._language_combo.itemData(index)
-        if isinstance(lang, str):
-            self._set_language(lang, persist=True)
-
     def _sorted_plugins(self) -> List[LoadedPlugin]:
         def key(lp: LoadedPlugin):
             ts = self._last_runs.get(lp.manifest.id, 0)
-            return (-ts, self._plugin_name(lp).lower())
+            return (-ts, lp.manifest.name.lower())
         return sorted(self._plugins, key=key)
 
     def _reload_plugins(self, initial: bool = False) -> None:
@@ -410,12 +252,16 @@ class MainWindow(QMainWindow):
                 self._rebuild_home()
 
                 if not initial and not self._plugins:
-                    QMessageBox.information(self, self._tr("dialog_title"), self._tr("no_plugins"))
+                    QMessageBox.information(self, "GameHub", "Nenašel jsem žádné pluginy ve složce games/.")
             except Exception as exc:
                 _log.error("Plugin reload failed.", exc_info=self._exc_info(exc))
                 self._plugins = []
                 self._rebuild_home()
-                QMessageBox.critical(self, self._tr("dialog_title"), self._tr("plugin_reload_failed"))
+                QMessageBox.critical(
+                    self,
+                    "GameHub",
+                    "Nepodarilo se nacist pluginy her. Podrobnosti jsou v logu.",
+                )
 
         QTimer.singleShot(150, finish)
 
@@ -428,14 +274,7 @@ class MainWindow(QMainWindow):
                 self._stack.removeWidget(self._home)
             self._home.deleteLater()
 
-        self._loading_home = HomePage(
-            [],
-            on_open=None,
-            loading=True,
-            card_width=200,
-            language=self._language,
-            play_hint_text=self._tr("play_hint"),
-        )
+        self._loading_home = HomePage([], on_open=None, loading=True, card_width=200)
         self._stack.insertWidget(0, self._loading_home)
         self._stack.setCurrentWidget(self._loading_home)
 
@@ -450,13 +289,7 @@ class MainWindow(QMainWindow):
                 self._stack.removeWidget(self._home)
             self._home.deleteLater()
 
-        self._home = HomePage(
-            filtered,
-            on_open=self.open_plugin,
-            card_width=200,
-            language=self._language,
-            play_hint_text=self._tr("play_hint"),
-        )
+        self._home = HomePage(filtered, on_open=self.open_plugin, card_width=200)
         self._stack.insertWidget(0, self._home)
         self._stack.setCurrentWidget(self._home)
         fade_in(self._home)
@@ -496,16 +329,12 @@ class MainWindow(QMainWindow):
 
         self._active_plugin_page = None
         self._active_plugin_widget = None
-        self._active_plugin_loaded = None
-        self._active_back_button = None
-        self._active_plugin_title_label = None
 
     def open_plugin(self, lp: LoadedPlugin) -> None:
         # update last-run info
         self._last_runs[lp.manifest.id] = time.time()
         self._save_last_runs()
         self._teardown_active_plugin()
-        display_name = self._plugin_name(lp)
 
         page = QWidget()
         v = QVBoxLayout(page)
@@ -517,11 +346,11 @@ class MainWindow(QMainWindow):
         top_l = QHBoxLayout(top)
         top_l.setContentsMargins(12, 10, 12, 10)
 
-        btn_back = QPushButton(self._tr("back"))
+        btn_back = QPushButton("Zpět")
         btn_back.setIcon(self.style().standardIcon(QStyle.SP_ArrowBack))
         btn_back.clicked.connect(self._go_home)
 
-        name = QLabel(display_name)
+        name = QLabel(lp.manifest.name)
         name.setObjectName("Header2")
 
         top_l.addWidget(btn_back)
@@ -542,10 +371,10 @@ class MainWindow(QMainWindow):
             )
             QMessageBox.critical(
                 self,
-                self._tr("dialog_title"),
-                self._tr("plugin_open_failed", name=display_name),
+                "GameHub",
+                f"Hru '{lp.manifest.name}' se nepodarilo otevrit. Podrobnosti jsou v logu.",
             )
-            err = QLabel(self._tr("plugin_widget_crash", error=repr(exc)))
+            err = QLabel(f"Plugin spadl při vytváření widgetu:\n{exc!r}")
             err.setWordWrap(True)
             v.addWidget(err, 1)
             self._active_plugin_widget = None
@@ -553,9 +382,6 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(page)
         self._stack.setCurrentWidget(page)
         self._active_plugin_page = page
-        self._active_plugin_loaded = lp
-        self._active_back_button = btn_back
-        self._active_plugin_title_label = name
         if self._active_plugin_widget is not None:
             self._call_lifecycle_hook(self._active_plugin_widget, "on_activate")
         fade_in(page)

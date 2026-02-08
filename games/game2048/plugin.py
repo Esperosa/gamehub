@@ -31,14 +31,6 @@ manifest = PluginManifest(
     id="game2048",
     name="2048",
     description="Klasická posuvná hra - spojujte dlaždice a dosáhněte 2048!",
-    name_i18n={
-        "cs": "2048",
-        "en": "2048",
-    },
-    description_i18n={
-        "cs": "Klasická posuvná hra - spojujte dlaždice a dosáhněte 2048!",
-        "en": "Classic sliding tile game - merge tiles and reach 2048",
-    },
     version="1.0.0",
     author="GameHub",
     graphic_text="2048",

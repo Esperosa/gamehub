@@ -31,14 +31,6 @@ manifest = PluginManifest(
     id="othello",
     name="Othello",
     description="Ovládni rohy, obklič soupeře a otoč co nejvíc kamenů",
-    name_i18n={
-        "cs": "Othello",
-        "en": "Othello",
-    },
-    description_i18n={
-        "cs": "Ovládni rohy, obklič soupeře a otoč co nejvíc kamenů",
-        "en": "Control corners, surround the opponent, and flip as many disks as possible",
-    },
     version="1.0.0",
     author="GameHub",
     graphic_text="● ○\n○ ●",
