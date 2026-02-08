@@ -21,8 +21,6 @@
 
 ## Gameplay Preview (8s Clips)
 
-Klipy jsou generované v režimu „klidná ukázka“: `8 s`, `10 FPS`, `1280x720`, střední nastavení hry
-(u lehkých her větší herní plocha), bez speed-run stylu.
 
 | Hub | Print Dialog | PDF Preview |
 |---|---|---|
