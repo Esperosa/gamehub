@@ -43,9 +43,9 @@ _DIFFICULTY_EMPTY_RANGES = {
         "hard": (0.60, 0.68),
     },
     16: {
-        "easy": (0.22, 0.28),
-        "medium": (0.29, 0.35),
-        "hard": (0.36, 0.42),
+        "easy": (0.35, 0.43),
+        "medium": (0.44, 0.52),
+        "hard": (0.53, 0.60),
     },
 }
 
@@ -572,31 +572,33 @@ class SudokuGenerator:
     
     def _get_strategic_removal_order(self, size: int, rng: random.Random, 
                                       prefer_center: bool) -> List[int]:
-        """Get cell indices ordered by strategic importance."""
+        """
+        Get cell indices in a difficulty-biased but still varied order.
+
+        The bias controls whether center or edge cells are more likely to be removed
+        first, while randomness prevents near-identical clue layouts across runs.
+        """
         cells = list(range(size * size))
-        center = size // 2
-        
-        def distance_from_center(idx):
-            r, c = idx // size, idx % size
-            return abs(r - center) + abs(c - center)
-        
-        # Sort by distance from center
-        cells.sort(key=distance_from_center, reverse=not prefer_center)
-        
-        # Add some randomness within similar distances
-        result = []
-        i = 0
-        while i < len(cells):
-            # Group cells with same distance
-            j = i
-            while j < len(cells) and distance_from_center(cells[j]) == distance_from_center(cells[i]):
-                j += 1
-            group = cells[i:j]
-            rng.shuffle(group)
-            result.extend(group)
-            i = j
-        
-        return result
+        center = (size - 1) / 2.0
+        max_dist = abs(0 - center) + abs(0 - center)
+
+        weighted: List[Tuple[float, int]] = []
+        for idx in cells:
+            r, c = divmod(idx, size)
+            dist = abs(r - center) + abs(c - center)
+            norm_dist = (dist / max_dist) if max_dist > 0 else 0.0
+
+            # Easy prefers keeping center clues (remove edges first).
+            # Hard prefers removing center clues first.
+            bias = (1.0 - norm_dist) if prefer_center else norm_dist
+
+            # Keep meaningful bias but preserve strong variability.
+            weight = 0.35 + 0.65 * bias
+            key = rng.random() ** (1.0 / weight)
+            weighted.append((key, idx))
+
+        weighted.sort(reverse=True)
+        return [idx for _, idx in weighted]
 
 
 def create_puzzle(size: int = 9, difficulty: str = "medium", 
