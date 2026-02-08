@@ -1,11 +1,11 @@
 """
 2048 AI Solver using Expectimax with Numba JIT optimization
 
-This solver achieves 2048+ in 95%+ of games by:
+This solver focuses on:
 - Numba JIT compilation for ~50x speedup
 - Strictly keeping max tile in top-left corner
 - Building tiles in snake/gradient pattern
-- Deeper search enabled by speed (depth 6-8)
+- Adaptive depth to balance quality and responsiveness
 """
 from __future__ import annotations
 
@@ -24,6 +24,21 @@ except ImportError:
         if len(args) == 1 and callable(args[0]):
             return args[0]
         return decorator
+
+
+def _jit(*args, **kwargs):
+    """
+    Shared JIT decorator settings for hot paths.
+
+    `nogil=True` allows heavy numeric kernels to run without holding the
+    Python GIL, so UI/event callbacks stay responsive while solver work runs
+    in background threads.
+    """
+    opts = {"cache": True, "nogil": True}
+    opts.update(kwargs)
+    if args:
+        return njit(*args, **opts)
+    return njit(**opts)
 
 
 class Direction(Enum):
@@ -48,7 +63,7 @@ GRADIENT_WEIGHTS = np.array([
 ], dtype=np.float64)
 
 
-@njit
+@_jit
 def _slide_row_left(row):
     """Slide a row left and return (new_row, score, changed)."""
     result = np.zeros(4, dtype=np.int64)
@@ -82,7 +97,7 @@ def _slide_row_left(row):
     return result, score, changed
 
 
-@njit
+@_jit
 def _rotate_90_cw(grid):
     """Rotate grid 90 degrees clockwise."""
     result = np.zeros((4, 4), dtype=np.int64)
@@ -92,7 +107,7 @@ def _rotate_90_cw(grid):
     return result
 
 
-@njit
+@_jit
 def _rotate_90_ccw(grid):
     """Rotate grid 90 degrees counter-clockwise."""
     result = np.zeros((4, 4), dtype=np.int64)
@@ -102,7 +117,7 @@ def _rotate_90_ccw(grid):
     return result
 
 
-@njit
+@_jit
 def simulate_move_numba(grid, direction):
     """Simulate a move without spawning. Returns (new_grid, score, moved)."""
     if direction == DIR_LEFT:
@@ -135,7 +150,7 @@ def simulate_move_numba(grid, direction):
     return new_grid, total_score, any_moved
 
 
-@njit
+@_jit
 def count_empty(grid):
     """Count empty cells."""
     count = 0
@@ -146,7 +161,7 @@ def count_empty(grid):
     return count
 
 
-@njit
+@_jit
 def max_tile_numba(grid):
     """Return maximum tile value on grid."""
     max_tile = 0
@@ -157,7 +172,7 @@ def max_tile_numba(grid):
     return max_tile
 
 
-@njit
+@_jit
 def _count_tiles_and_pair_stats(grid, target):
     """
     Return (count, has_adjacent_pair, min_pair_distance) for target value.
@@ -195,7 +210,7 @@ def _count_tiles_and_pair_stats(grid, target):
     return count, has_adjacent, min_dist
 
 
-@njit
+@_jit
 def near_2048_potential_numba(grid):
     """
     Adaptive tactical bonus for building/merging 1024 pairs safely.
@@ -248,7 +263,7 @@ def near_2048_potential_numba(grid):
     return score * safety
 
 
-@njit
+@_jit
 def log2_fast(x):
     """Fast log2 for integers."""
     if x <= 0:
@@ -260,7 +275,7 @@ def log2_fast(x):
     return result
 
 
-@njit
+@_jit
 def evaluate_grid_numba(grid, gradient_weights):
     """Evaluate grid using proven 2048 heuristics."""
     score = 0.0
@@ -335,7 +350,7 @@ def evaluate_grid_numba(grid, gradient_weights):
     return score
 
 
-@njit
+@_jit
 def is_move_safe_numba(grid, direction):
     """Check if move doesn't break corner strategy."""
     max_tile = 0
@@ -355,7 +370,7 @@ def is_move_safe_numba(grid, direction):
     return True
 
 
-@njit
+@_jit
 def expectimax_numba(grid, depth, is_player, gradient_weights):
     """Expectimax search - Numba JIT compiled."""
     if depth == 0:
@@ -397,7 +412,7 @@ def expectimax_numba(grid, depth, is_player, gradient_weights):
         return total / empty_count
 
 
-@njit
+@_jit
 def get_best_move_numba(grid, depth, gradient_weights):
     """Get best move using expectimax. Returns direction constant or -1."""
     best_score = -1e18
@@ -470,13 +485,13 @@ _jit_warmed_up = False
 
 class Solver2048:
     """
-    2048 AI Solver with Numba JIT - achieves 2048 in 95%+ of games.
+    2048 AI solver with Numba JIT acceleration.
     
     Uses expectimax with:
     - Numba JIT for ~50x speedup (lazy compilation on first AI use)
     - Strict corner anchoring
     - Gradient/snake pattern  
-    - Adaptive depth (6-8 possible due to speed)
+    - Adaptive depth for quality/performance trade-offs
     """
     
     def __init__(self, depth: int = 5, fast_mode: bool = False):

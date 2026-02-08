@@ -779,7 +779,9 @@ class Game2048Widget(QWidget):
         # Auto-solve state
         self._solving = False
         self._solve_timer: Optional[QTimer] = None
-        self._solver = Solver2048(depth=5, fast_mode=False)
+        # Keep default autoplay depth responsive; deeper tactical lookahead
+        # is still applied adaptively inside the solver when the board tightens.
+        self._solver = Solver2048(depth=4, fast_mode=False)
         self._solver_ready = False
         self._solver_warming = False
         self._solver_warmup_task: Optional[WorkerHandle] = None
