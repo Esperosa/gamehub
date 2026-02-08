@@ -125,53 +125,48 @@ def _qss_midnight() -> str:
         background: rgba(7, 11, 19, 0.95);
         border: 1px solid rgba(255,255,255,0.12);
         border-radius: 8px;
-        padding: 0px 28px 0px 8px;
+        padding: 4px 8px;
         min-height: 30px;
         selection-background-color: rgba(96, 165, 250, 0.35);
     }
     QDialog QSpinBox:focus {
         border: 1px solid rgba(100, 190, 255, 0.65);
     }
-    QDialog QSpinBox::up-button, QDialog QSpinBox::down-button {
-        width: 20px;
+    QDialog QWidget#SpinEditor {
+        background: rgba(7, 11, 19, 0.95);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+    }
+    QDialog QWidget#SpinEditor QSpinBox {
+        background: transparent;
+        border: none;
+        padding: 0px 8px;
+        min-height: 30px;
+        color: #E6E9F2;
+    }
+    QDialog QWidget#SpinEditor QWidget#SpinStepper {
         border-left: 1px solid rgba(255,255,255,0.12);
+    }
+    QDialog QPushButton#SpinStepUp, QDialog QPushButton#SpinStepDown {
+        padding: 0px;
+        border: none;
+        border-radius: 0px;
         background: rgba(255,255,255,0.04);
+        color: #E6E9F2;
+        font-weight: 800;
     }
-    QDialog QSpinBox::up-button {
-        subcontrol-origin: border;
-        subcontrol-position: top right;
+    QDialog QPushButton#SpinStepUp {
         border-top-right-radius: 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.10);
     }
-    QDialog QSpinBox::down-button {
-        subcontrol-origin: border;
-        subcontrol-position: bottom right;
+    QDialog QPushButton#SpinStepDown {
         border-bottom-right-radius: 8px;
-        border-top: 1px solid rgba(255,255,255,0.10);
     }
-    QDialog QSpinBox::up-button:hover, QDialog QSpinBox::down-button:hover {
+    QDialog QPushButton#SpinStepUp:hover, QDialog QPushButton#SpinStepDown:hover {
         background: rgba(96, 165, 250, 0.20);
     }
-    QDialog QSpinBox::up-arrow {
-        width: 0px;
-        height: 0px;
-        border-left: 5px solid transparent;
-        border-right: 5px solid transparent;
-        border-bottom: 7px solid rgba(230,233,242,0.95);
-        margin-top: 1px;
-    }
-    QDialog QSpinBox::down-arrow {
-        width: 0px;
-        height: 0px;
-        border-left: 5px solid transparent;
-        border-right: 5px solid transparent;
-        border-top: 7px solid rgba(230,233,242,0.95);
-        margin-bottom: 1px;
-    }
-    QDialog QSpinBox::up-arrow:disabled {
-        border-bottom-color: rgba(230,233,242,0.35);
-    }
-    QDialog QSpinBox::down-arrow:disabled {
-        border-top-color: rgba(230,233,242,0.35);
+    QDialog QPushButton#SpinStepUp:pressed, QDialog QPushButton#SpinStepDown:pressed {
+        background: rgba(96, 165, 250, 0.28);
     }
     QDialog QComboBox::drop-down {
         border: none;
@@ -317,53 +312,48 @@ def _qss_slate() -> str:
         background: #FFFFFF;
         border: 1px solid rgba(0,0,0,0.14);
         border-radius: 8px;
-        padding: 0px 28px 0px 8px;
+        padding: 4px 8px;
         min-height: 30px;
         selection-background-color: rgba(96, 165, 250, 0.30);
     }
     QDialog QSpinBox:focus {
         border: 1px solid #60A5FA;
     }
-    QDialog QSpinBox::up-button, QDialog QSpinBox::down-button {
-        width: 20px;
+    QDialog QWidget#SpinEditor {
+        background: #FFFFFF;
+        border: 1px solid rgba(0,0,0,0.14);
+        border-radius: 8px;
+    }
+    QDialog QWidget#SpinEditor QSpinBox {
+        background: transparent;
+        border: none;
+        padding: 0px 8px;
+        min-height: 30px;
+        color: #1E2430;
+    }
+    QDialog QWidget#SpinEditor QWidget#SpinStepper {
         border-left: 1px solid rgba(0,0,0,0.12);
+    }
+    QDialog QPushButton#SpinStepUp, QDialog QPushButton#SpinStepDown {
+        padding: 0px;
+        border: none;
+        border-radius: 0px;
         background: #F3F4F6;
+        color: #1F2937;
+        font-weight: 800;
     }
-    QDialog QSpinBox::up-button {
-        subcontrol-origin: border;
-        subcontrol-position: top right;
+    QDialog QPushButton#SpinStepUp {
         border-top-right-radius: 8px;
+        border-bottom: 1px solid rgba(0,0,0,0.08);
     }
-    QDialog QSpinBox::down-button {
-        subcontrol-origin: border;
-        subcontrol-position: bottom right;
+    QDialog QPushButton#SpinStepDown {
         border-bottom-right-radius: 8px;
-        border-top: 1px solid rgba(0,0,0,0.08);
     }
-    QDialog QSpinBox::up-button:hover, QDialog QSpinBox::down-button:hover {
+    QDialog QPushButton#SpinStepUp:hover, QDialog QPushButton#SpinStepDown:hover {
         background: #E8F0FF;
     }
-    QDialog QSpinBox::up-arrow {
-        width: 0px;
-        height: 0px;
-        border-left: 5px solid transparent;
-        border-right: 5px solid transparent;
-        border-bottom: 7px solid #1F2937;
-        margin-top: 1px;
-    }
-    QDialog QSpinBox::down-arrow {
-        width: 0px;
-        height: 0px;
-        border-left: 5px solid transparent;
-        border-right: 5px solid transparent;
-        border-top: 7px solid #1F2937;
-        margin-bottom: 1px;
-    }
-    QDialog QSpinBox::up-arrow:disabled {
-        border-bottom-color: rgba(31,41,55,0.35);
-    }
-    QDialog QSpinBox::down-arrow:disabled {
-        border-top-color: rgba(31,41,55,0.35);
+    QDialog QPushButton#SpinStepUp:pressed, QDialog QPushButton#SpinStepDown:pressed {
+        background: #DBEAFE;
     }
     QDialog QComboBox::drop-down {
         border: none;

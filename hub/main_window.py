@@ -158,9 +158,11 @@ class MainWindow(QMainWindow):
 
         self._reload_plugins(initial=True)
 
-        act_quit = QAction("Quit", self)
-        act_quit.triggered.connect(self.close)
-        self.menuBar().addAction(act_quit)
+        # TODO: Temporarily disabled by request.
+        # Keep this snippet for quick re-enable of top menu "Quit" action.
+        # act_quit = QAction("Quit", self)
+        # act_quit.triggered.connect(self.close)
+        # self.menuBar().addAction(act_quit)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

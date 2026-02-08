@@ -67,14 +67,48 @@ class BatchPrintDialog(QDialog):
             row.setSpacing(8)
 
             lbl = QLabel(variant.label)
-            spin = QSpinBox()
+            control = QWidget()
+            control.setObjectName("SpinEditor")
+            control_lay = QHBoxLayout(control)
+            control_lay.setContentsMargins(0, 0, 0, 0)
+            control_lay.setSpacing(0)
+
+            spin = QSpinBox(control)
             spin.setRange(0, 500)
             spin.setSingleStep(1)
-            spin.setButtonSymbols(QSpinBox.UpDownArrows)
+            spin.setButtonSymbols(QSpinBox.NoButtons)
+            spin.setAlignment(Qt.AlignCenter)
+            spin.setFixedSize(72, 30)
             spin.setValue(0)
 
+            stepper = QWidget(control)
+            stepper.setObjectName("SpinStepper")
+            stepper_lay = QVBoxLayout(stepper)
+            stepper_lay.setContentsMargins(0, 0, 0, 0)
+            stepper_lay.setSpacing(0)
+
+            btn_plus = QPushButton("+", stepper)
+            btn_plus.setObjectName("SpinStepUp")
+            btn_plus.setFixedSize(24, 15)
+            btn_plus.setAutoRepeat(True)
+            btn_plus.setFocusPolicy(Qt.NoFocus)
+            btn_plus.clicked.connect(spin.stepUp)
+
+            btn_minus = QPushButton("-", stepper)
+            btn_minus.setObjectName("SpinStepDown")
+            btn_minus.setFixedSize(24, 15)
+            btn_minus.setAutoRepeat(True)
+            btn_minus.setFocusPolicy(Qt.NoFocus)
+            btn_minus.clicked.connect(spin.stepDown)
+
+            stepper_lay.addWidget(btn_plus)
+            stepper_lay.addWidget(btn_minus)
+
+            control_lay.addWidget(spin)
+            control_lay.addWidget(stepper)
+
             row.addWidget(lbl, 1)
-            row.addWidget(spin, 0)
+            row.addWidget(control, 0)
             variants_lay.addLayout(row)
             self._variant_inputs.append((variant, spin))
 
