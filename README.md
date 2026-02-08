@@ -21,22 +21,21 @@
 
 ## Gameplay Preview
 
-
 | Hub | Print Dialog | PDF Preview |
 |---|---|---|
-| ![Hub gameplay](docs/media/clips/hub.gif) | ![Print dialog gameplay](docs/media/clips/print_dialog.gif) | ![PDF preview gameplay](docs/media/clips/pdf_preview.gif) |
+| ![Hub gameplay](docs/media/clips/hub.webp) | ![Print dialog gameplay](docs/media/clips/print_dialog.webp) | ![PDF preview gameplay](docs/media/clips/pdf_preview.webp) |
 
 | 2048 | KenKen | Mastermind |
 |---|---|---|
-| ![2048 gameplay](docs/media/clips/game2048.gif) | ![KenKen gameplay](docs/media/clips/kenken.gif) | ![Mastermind gameplay](docs/media/clips/mastermind.gif) |
+| ![2048 gameplay](docs/media/clips/game2048.webp) | ![KenKen gameplay](docs/media/clips/kenken.webp) | ![Mastermind gameplay](docs/media/clips/mastermind.webp) |
 
 | Nonogram | Othello | Piskvorky |
 |---|---|---|
-| ![Nonogram gameplay](docs/media/clips/nonogram.gif) | ![Othello gameplay](docs/media/clips/othello.gif) | ![Piskvorky gameplay](docs/media/clips/piskvorky.gif) |
+| ![Nonogram gameplay](docs/media/clips/nonogram.webp) | ![Othello gameplay](docs/media/clips/othello.webp) | ![Piskvorky gameplay](docs/media/clips/piskvorky.webp) |
 
 | Simon | Slitherlink | Sudoku |
 |---|---|---|
-| ![Simon gameplay](docs/media/clips/simon.gif) | ![Slitherlink gameplay](docs/media/clips/slitherlink.gif) | ![Sudoku gameplay](docs/media/clips/sudoku.gif) |
+| ![Simon gameplay](docs/media/clips/simon.webp) | ![Slitherlink gameplay](docs/media/clips/slitherlink.webp) | ![Sudoku gameplay](docs/media/clips/sudoku.webp) |
 
 ## Quick Links
 
@@ -48,7 +47,7 @@
 
 - Social preview obrázek: `docs/media/social_preview.png`
 - README hero: `docs/media/repo_hero.png`
-- Gameplay klipy (8s): `docs/media/clips/*.gif`
+- Gameplay klipy (8s, WebP): `docs/media/clips/*.webp`
 - Regenerace assetu: `python scripts/generate_repo_branding.py --output-dir docs/media`
 - Regenerace gameplay klipu: `python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 8 --fps 10 --width 1280 --height 720`
 - Manuál pro repo branding: `docs/repository_branding.md`

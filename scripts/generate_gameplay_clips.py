@@ -423,19 +423,32 @@ def pixmap_to_image(
     return image
 
 
-def save_gif(frames: list[Image.Image], output: Path, fps: int) -> None:
+def save_animation(frames: list[Image.Image], output: Path, fps: int) -> None:
     if not frames:
         raise RuntimeError(f"No frames produced for {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
-    prepared = [
-        frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=220)
-        for frame in frames
-    ]
+    duration = max(1, int(1000 / fps))
+    if output.suffix.lower() == ".webp":
+        rgb = [frame.convert("RGB") for frame in frames]
+        rgb[0].save(
+            output,
+            save_all=True,
+            append_images=rgb[1:],
+            duration=duration,
+            loop=0,
+            format="WEBP",
+            method=6,
+            quality=74,
+        )
+        return
+
+    # GIF fallback.
+    prepared = [frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=220) for frame in frames]
     prepared[0].save(
         output,
         save_all=True,
         append_images=prepared[1:],
-        duration=max(1, int(1000 / fps)),
+        duration=duration,
         loop=0,
         optimize=True,
         disposal=2,
@@ -482,7 +495,7 @@ def capture_widget_clip(
             )
         )
 
-    save_gif(frames, output, fps=fps)
+    save_animation(frames, output, fps=fps)
 
 
 def _build_sudoku_variants() -> list[VariantOption]:
@@ -711,7 +724,7 @@ def capture_game_clips(
         wait_until(app, lambda: not is_game_busy(game_id, widget), timeout_ms=9000)
         process_events(app, 220)
 
-        clip_path = output_dir / f"{game_id}.gif"
+        clip_path = output_dir / f"{game_id}.webp"
 
         def _busy() -> bool:
             return is_game_busy(game_id, widget)
@@ -773,7 +786,7 @@ def run(
     output_dir.mkdir(parents=True, exist_ok=True)
     produced: list[Path] = []
 
-    hub_clip = output_dir / "hub.gif"
+    hub_clip = output_dir / "hub.webp"
     capture_hub_clip(
         app=app,
         window=window,
@@ -799,7 +812,7 @@ def run(
         )
     )
 
-    print_clip = output_dir / "print_dialog.gif"
+    print_clip = output_dir / "print_dialog.webp"
     capture_print_dialog_clip(
         app=app,
         output=print_clip,
@@ -810,7 +823,7 @@ def run(
     produced.append(print_clip)
     print(f"[ok] print dialog -> {print_clip}")
 
-    pdf_clip = output_dir / "pdf_preview.gif"
+    pdf_clip = output_dir / "pdf_preview.webp"
     capture_pdf_preview_clip(
         app=app,
         output=pdf_clip,
@@ -839,7 +852,7 @@ def main() -> int:
         "--output-dir",
         type=Path,
         default=ROOT / "docs" / "media" / "clips",
-        help="Destination directory for gameplay GIF clips.",
+        help="Destination directory for gameplay WebP clips.",
     )
     parser.add_argument(
         "--seconds",

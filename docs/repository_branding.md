@@ -6,10 +6,12 @@ Tento projekt má připravený branding set pro GitHub profil repozitáře.
 
 - `docs/media/repo_hero.png` - hlavní README hero obrázek (`1600x900`)
 - `docs/media/social_preview.png` - GitHub social preview (`1280x640`)
-- `docs/media/clips/hub.gif` - ukázka hub navigace (`8s`, `1280x720`, `10 FPS`)
-- `docs/media/clips/print_dialog.gif` - práce s tisk/PDF dialogem (`8s`, `1280x720`, `10 FPS`)
-- `docs/media/clips/pdf_preview.gif` - scroll náhledem exportovaného PDF (`8s`, `1280x720`, `10 FPS`)
-- `docs/media/clips/<game>.gif` - 8s klipy všech her ve středním nastavení (u lehkých her větší plocha)
+- `docs/media/clips/hub.webp` - ukázka hub navigace (`8s`, `1280x720`, `10 FPS`)
+- `docs/media/clips/print_dialog.webp` - práce s tisk/PDF dialogem (`8s`, `1280x720`, `10 FPS`)
+- `docs/media/clips/pdf_preview.webp` - scroll náhledem exportovaného PDF (`8s`, `1280x720`, `10 FPS`)
+- `docs/media/clips/<game>.webp` - 8s klipy všech her ve středním nastavení (u lehkých her větší plocha)
+
+WebP byl zvolen kvůli rychlému načítání README při zachování dobré vizuální kvality.
 
 ## Regenerace
 
