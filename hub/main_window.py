@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QStandardPaths
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
         if self._app is not None:
             apply_theme(self._app, font_size=10, theme="midnight")
 
+        self._last_runs_error_notified = False
         self._last_runs = self._load_last_runs()
 
         self._reload_plugins(initial=True)
@@ -171,27 +172,60 @@ class MainWindow(QMainWindow):
     def _games_dir(self) -> Path:
         return Path(__file__).resolve().parents[1] / "games"
 
+    def _app_data_dir(self) -> Path:
+        app_data = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+        if not app_data:
+            app_data = str(Path.home() / ".brainhub")
+        p = Path(app_data)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
     def _last_runs_path(self) -> Path:
-        return self._games_dir() / ".last_runs.json"
+        return self._app_data_dir() / "last_runs.json"
+
+    @staticmethod
+    def _exc_info(exc: Exception):
+        return (type(exc), exc, exc.__traceback__)
+
+    def _report_last_runs_error(self, exc: Exception) -> None:
+        _log.error("Failed to read/write last-run metadata.", exc_info=self._exc_info(exc))
+        if self._last_runs_error_notified:
+            return
+        self._last_runs_error_notified = True
+        QMessageBox.warning(
+            self,
+            "GameHub",
+            (
+                "Nepodarilo se nacist nebo ulozit historii poslednich spusteni. "
+                "Razeni her podle posledniho spusteni nemusi fungovat."
+            ),
+        )
 
     def _load_last_runs(self) -> dict:
-        p = self._last_runs_path()
-        if p.exists():
-            try:
-                import json
-
-                return json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
+        try:
+            p = self._last_runs_path()
+            if not p.exists():
                 return {}
-        return {}
+            import json
+
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+            _log.warning("Invalid last-runs payload at %s: expected object, got %s.", p, type(data).__name__)
+            return {}
+        except Exception as exc:
+            self._report_last_runs_error(exc)
+            return {}
 
     def _save_last_runs(self) -> None:
         try:
             import json
 
-            self._last_runs_path().write_text(json.dumps(self._last_runs), encoding="utf-8")
-        except Exception:
-            pass
+            p = self._last_runs_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(self._last_runs), encoding="utf-8")
+        except Exception as exc:
+            self._report_last_runs_error(exc)
 
     def _sorted_plugins(self) -> List[LoadedPlugin]:
         def key(lp: LoadedPlugin):
@@ -203,13 +237,23 @@ class MainWindow(QMainWindow):
         self._show_loading_state()
 
         def finish():
-            self._plugins = discover_plugins(self._games_dir())
+            try:
+                self._plugins = discover_plugins(self._games_dir())
 
-            # Rebuild UI
-            self._rebuild_home()
+                # Rebuild UI
+                self._rebuild_home()
 
-            if not initial and not self._plugins:
-                QMessageBox.information(self, "GameHub", "Nenašel jsem žádné pluginy ve složce games/.")
+                if not initial and not self._plugins:
+                    QMessageBox.information(self, "GameHub", "Nenašel jsem žádné pluginy ve složce games/.")
+            except Exception as exc:
+                _log.error("Plugin reload failed.", exc_info=self._exc_info(exc))
+                self._plugins = []
+                self._rebuild_home()
+                QMessageBox.critical(
+                    self,
+                    "GameHub",
+                    "Nepodarilo se nacist pluginy her. Podrobnosti jsou v logu.",
+                )
 
         QTimer.singleShot(150, finish)
 
@@ -311,8 +355,18 @@ class MainWindow(QMainWindow):
             widget = lp.plugin.create_widget(parent=page)
             v.addWidget(widget, 1)
             self._active_plugin_widget = widget
-        except Exception as e:
-            err = QLabel(f"Plugin spadl při vytváření widgetu:\n{e!r}")
+        except Exception as exc:
+            _log.error(
+                "Plugin '%s' failed during widget creation.",
+                lp.plugin.meta.id,
+                exc_info=self._exc_info(exc),
+            )
+            QMessageBox.critical(
+                self,
+                "GameHub",
+                f"Hru '{lp.plugin.meta.name}' se nepodarilo otevrit. Podrobnosti jsou v logu.",
+            )
+            err = QLabel(f"Plugin spadl při vytváření widgetu:\n{exc!r}")
             err.setWordWrap(True)
             v.addWidget(err, 1)
             self._active_plugin_widget = None

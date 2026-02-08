@@ -11,6 +11,7 @@ Features:
 
 from __future__ import annotations
 
+import logging
 import math
 import random
 import time
@@ -55,6 +56,8 @@ SlitherlinkPuzzle = _engine_module.SlitherlinkPuzzle
 SlitherlinkSolver = _engine_module.SlitherlinkSolver
 load_random_puzzle = _engine_module.load_random_puzzle
 create_puzzle = _engine_module.create_puzzle
+
+_log = logging.getLogger(__name__)
 
 
 # Colors
@@ -827,6 +830,14 @@ class SlitherlinkWidget(QWidget):
         self._setup_ui()
         self._load_puzzle()
 
+    @staticmethod
+    def _exc_info(exc: Exception):
+        return (type(exc), exc, exc.__traceback__)
+
+    def _report_runtime_error(self, user_message: str, exc: Exception) -> None:
+        _log.error("Slitherlink runtime error.", exc_info=self._exc_info(exc))
+        QMessageBox.warning(self, "Slitherlink", user_message)
+
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -1028,7 +1039,10 @@ class SlitherlinkWidget(QWidget):
             if task_id != self._loader_task_id:
                 return
             self._loader_task = None
-            print(f"[Slitherlink] Puzzle load failed: {exc}")
+            self._report_runtime_error(
+                "Nacitani puzzle selhalo. Zkuste to prosim znovu.",
+                exc,
+            )
             self._on_puzzle_loaded(None)
 
         self._loader_task = run_in_worker(
@@ -1096,7 +1110,17 @@ class SlitherlinkWidget(QWidget):
                     return
                 state: Optional[SlitherlinkState] = None
                 for _attempt in range(3):
-                    state = create_puzzle(size, diff)
+                    try:
+                        state = create_puzzle(size, diff)
+                    except Exception as exc:
+                        _log.error(
+                            "Slitherlink batch generation failed (size=%s, difficulty=%s, attempt=%s).",
+                            size,
+                            diff,
+                            _attempt + 1,
+                            exc_info=self._exc_info(exc),
+                        )
+                        state = None
                     if state is not None:
                         break
                 if state is not None:
@@ -1126,6 +1150,7 @@ class SlitherlinkWidget(QWidget):
         try:
             draw_square_batch(printer, items, dlg.puzzles_per_page(), _draw_print_slitherlink)
         except Exception as exc:
+            _log.error("Slitherlink print export failed.", exc_info=self._exc_info(exc))
             QMessageBox.critical(self, "Slitherlink", f"Tisk se nepodařil:\n{exc}")
             return
 

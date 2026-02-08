@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
 from PySide6.QtCore import QStandardPaths
+
+_log = logging.getLogger(__name__)
 
 
 def appdata_file(filename: str) -> Path:
@@ -56,8 +59,13 @@ def load_stats(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return _default_data()
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+        _log.warning("Invalid stats payload at %s: expected object, got %s.", path, type(data).__name__)
+        return _default_data()
     except Exception:
+        _log.error("Failed to load piskvorky stats from %s.", path, exc_info=True)
         return _default_data()
 
 

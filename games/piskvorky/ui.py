@@ -12,6 +12,7 @@ Features:
 from __future__ import annotations
 
 import importlib.util
+import logging
 import math
 import random
 import sys
@@ -42,10 +43,12 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QStackedLayout,
     QGraphicsOpacityEffect,
+    QMessageBox,
 )
 from hub.worker import WorkerHandle, run_in_worker
 
 _THIS_DIR = Path(__file__).resolve().parent
+_log = logging.getLogger(__name__)
 
 
 def _load_local_module(module_name: str, path: Path):
@@ -818,6 +821,8 @@ class PiskvorkyWidget(QWidget):
         self._ai_warmup_task: Optional[WorkerHandle] = None
         self._ai_warmed_up = False
         self._ai_waiting_for_warmup = False
+        self._ai_error_notified = False
+        self._ai_warmup_error_notified = False
 
         # Swap2 state (for 13×13)
         self.swap_enabled = False
@@ -834,6 +839,24 @@ class PiskvorkyWidget(QWidget):
 
         # Start first game after UI is ready
         QTimer.singleShot(0, self.new_game)
+
+    @staticmethod
+    def _exc_info(exc: Exception):
+        return (type(exc), exc, exc.__traceback__)
+
+    def _report_runtime_error(
+        self,
+        user_message: str,
+        exc: Exception,
+        *,
+        once_attr: Optional[str] = None,
+    ) -> None:
+        _log.error("Piskvorky runtime error.", exc_info=self._exc_info(exc))
+        if once_attr and getattr(self, once_attr, False):
+            return
+        if once_attr:
+            setattr(self, once_attr, True)
+        QMessageBox.warning(self, "Piskvorky", user_message)
 
     def _get_toggle_btn_style(self) -> str:
         """Return stylesheet for toggle buttons."""
@@ -1035,7 +1058,10 @@ class PiskvorkyWidget(QWidget):
                     return SearchResult(move=mv, score=score, depth=2)
                 return best_move_hard(state_snapshot, bot)
             except Exception as exc:
-                print(f"AI Error: {exc}")
+                _log.error(
+                    "AI move computation failed, falling back to first legal move.",
+                    exc_info=self._exc_info(exc),
+                )
                 moves = state_snapshot.legal_moves()
                 if moves:
                     return SearchResult(move=moves[0], score=0, depth=0)
@@ -1054,7 +1080,11 @@ class PiskvorkyWidget(QWidget):
             self._ai_thinking = False
             self.board.enable()
             self._update_turn_status()
-            print(f"AI Worker failed: {exc}")
+            self._report_runtime_error(
+                "Bot narazil na chybu pri vyberu tahu. Zkus to prosim znovu.",
+                exc,
+                once_attr="_ai_error_notified",
+            )
 
         self._ai_task = run_in_worker(
             fn=_compute_ai,
@@ -1112,7 +1142,11 @@ class PiskvorkyWidget(QWidget):
             self._ai_thinking = False
             self.board.enable()
             self._update_turn_status()
-            print(f"AI warmup worker failed: {exc}")
+            self._report_runtime_error(
+                "Inicializace AI selhala. Hra pobezi dal, ale prvni tahy mohou byt pomalejsi.",
+                exc,
+                once_attr="_ai_warmup_error_notified",
+            )
 
         self._ai_warmup_task = run_in_worker(
             fn=warmup,

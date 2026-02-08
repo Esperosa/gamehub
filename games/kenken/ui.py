@@ -11,6 +11,7 @@ Features:
 """
 from __future__ import annotations
 
+import logging
 import math
 import random
 import time
@@ -45,6 +46,8 @@ except ImportError:
 create_puzzle = _engine_module.create_puzzle
 KenKenState = _engine_module.KenKenState
 Cage = _engine_module.Cage
+
+_log = logging.getLogger(__name__)
 
 
 # Colors
@@ -965,6 +968,14 @@ class KenKenWidget(QWidget):
         
         # Start game
         QTimer.singleShot(100, self.new_game)
+
+    @staticmethod
+    def _exc_info(exc: Exception):
+        return (type(exc), exc, exc.__traceback__)
+
+    def _report_runtime_error(self, user_message: str, exc: Exception) -> None:
+        _log.error("KenKen runtime error.", exc_info=self._exc_info(exc))
+        QMessageBox.warning(self, "KenKen", user_message)
     
     def _get_toggle_style(self) -> str:
         return """
@@ -1043,7 +1054,10 @@ class KenKenWidget(QWidget):
             if task_id != self._gen_task_id:
                 return
             self._gen_task = None
-            print(f"[KenKen] Generation error: {exc}")
+            self._report_runtime_error(
+                "Generovani puzzle selhalo. Zkuste to prosim znovu.",
+                exc,
+            )
             self._on_puzzle_ready(None)
 
         self._gen_task = run_in_worker(
@@ -1125,7 +1139,12 @@ class KenKenWidget(QWidget):
                     return
                 try:
                     state = create_puzzle(size)
-                except Exception:
+                except Exception as exc:
+                    _log.error(
+                        "KenKen batch generation failed for size %s.",
+                        size,
+                        exc_info=self._exc_info(exc),
+                    )
                     state = None
                 if state is not None:
                     items.append((state, variant.label))
@@ -1152,6 +1171,7 @@ class KenKenWidget(QWidget):
         try:
             draw_square_batch(printer, items, dlg.puzzles_per_page(), _draw_print_kenken)
         except Exception as exc:
+            _log.error("KenKen print export failed.", exc_info=self._exc_info(exc))
             QMessageBox.critical(self, "KenKen", f"Tisk se nepodařil:\n{exc}")
             return
 

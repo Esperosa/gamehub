@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QCoreApplication, QStandardPaths
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -20,21 +20,42 @@ from hub import printing as _printing  # noqa: F401
 from hub import layer_loader as _layer_loader  # noqa: F401
 
 
-def _configure_runtime_logging() -> None:
-    if getattr(sys, "frozen", False):
+_APP_NAME = "BrainHub"
+_APP_ORG = "BrainHub"
+
+
+def _ensure_app_identity() -> None:
+    QCoreApplication.setApplicationName(_APP_NAME)
+    QCoreApplication.setOrganizationName(_APP_ORG)
+
+
+def _log_file_path() -> Path:
+    base = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    if not base:
         local_app = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
-        log_dir = local_app / "BrainHub" / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "startup.log"
-        logging.basicConfig(
-            level=logging.INFO,
-            filename=str(log_file),
-            filemode="a",
-            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        )
-        logging.getLogger(__name__).info("=== BrainHub startup (frozen) ===")
-    else:
-        logging.basicConfig(level=logging.INFO)
+        base = str(local_app / _APP_NAME)
+    log_dir = Path(base) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / "runtime.log"
+
+
+def _configure_runtime_logging() -> None:
+    _ensure_app_identity()
+    log_file = _log_file_path()
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    root_logger.addHandler(stream_handler)
+
+    logging.getLogger(__name__).info("=== BrainHub startup === frozen=%s log=%s", getattr(sys, "frozen", False), log_file)
 
 
 def main() -> None:
@@ -44,8 +65,8 @@ def main() -> None:
     # Force Qt dialogs so app stylesheet applies consistently across systems.
     QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
     app = QApplication(sys.argv)
-    app.setApplicationName("BrainHub")
-    app.setOrganizationName("BrainHub")
+    app.setApplicationName(_APP_NAME)
+    app.setOrganizationName(_APP_ORG)
 
     # App icon for taskbar/window and runtime UI.
     icon_file = Path(__file__).resolve().parent / "assets" / "brainhub.png"

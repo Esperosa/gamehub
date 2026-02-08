@@ -16,6 +16,7 @@ Strategy:
 from __future__ import annotations
 
 import importlib.util
+import logging
 import numpy as np
 
 try:
@@ -47,6 +48,7 @@ from typing import List, Dict, Optional, Tuple, Set
 from functools import lru_cache
 
 _THIS_DIR = Path(__file__).resolve().parent
+_log = logging.getLogger(__name__)
 
 
 def _load_local_module(module_name: str, path: Path):
@@ -717,6 +719,6 @@ def warmup():
         _ = get_nearby_moves_fast(board8, np.int32(8), np.int32(2))
 
         _warmed_up = True
-    except Exception as e:
-        print(f"Warmup error: {e}")
+    except Exception:
+        _log.error("Piskvorky AI warmup failed; warmup retries disabled.", exc_info=True)
         _warmed_up = True  # Don't retry
