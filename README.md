@@ -19,7 +19,7 @@
   <img src="docs/media/repo_hero.png" alt="GameHub hero" width="100%" />
 </p>
 
-## Gameplay Preview (8s Clips)
+## Gameplay Preview
 
 
 | Hub | Print Dialog | PDF Preview |
