@@ -45,6 +45,11 @@
 |---|---|---|---|---|---|---|
 | [Releases](https://github.com/Esperosa/gamehub/releases) | [Rychlý start](#rychlý-start) | [ARCHITECTURE.md](ARCHITECTURE.md) | [print_export_samples.md](docs/print_export_samples.md) | [benchmarks/README.md](benchmarks/README.md) | [SECURITY.md](SECURITY.md) | [`docs/index.html`](docs/index.html) |
 
+## Implementace vs Knihovny
+
+- Přehled co je autorská logika a co je delegované na knihovny: `docs/author_vs_libraries.md`
+- Obsahuje tabulky po hrách + knihovnách a orientační graf odpovědností.
+
 ## Branding Repozitáře
 
 - Social preview obrázek: `docs/media/social_preview.png`
@@ -179,6 +184,7 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - `CODE_OF_CONDUCT.md` - pravidla komunikace v repozitáři
 - `docs/sudoku_generation_performance.md` - srovnání variant generování Sudoku 16x16 hard a výsledky benchmarku
 - `docs/solver_claims_audit.md` - transparentní audit tvrzení o unikátnosti/řešitelnosti
+- `docs/author_vs_libraries.md` - transparentní rozdělení autorské logiky vs role knihoven
 - `docs/print_export_samples.md` - jak vznikají print dialog screenshoty a PDF sample exporty
 - `docs/repository_branding.md` - jak regenerovat README hero/social preview assety
 - `scripts/generate_gameplay_clips.py` - automatická tvorba 8s gameplay klipů pro README

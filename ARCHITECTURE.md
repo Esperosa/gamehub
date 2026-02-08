@@ -98,26 +98,24 @@ Tyto moduly používají `hub/layer_loader.py` (`load_module_from_file`, `reexpo
 ```python
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 from typing import Optional
 
 from PySide6.QtWidgets import QWidget
 
+from hub.layer_loader import load_module_from_file
 from hub.plugin_api import PluginManifest
 
 _THIS_DIR = Path(__file__).resolve().parent
+_UI_MODULE_NAME = f"game_plugins.{_THIS_DIR.name}.ui"
 
 
 def _create_widget(parent: Optional[QWidget] = None) -> QWidget:
-    spec = importlib.util.spec_from_file_location("mygame_ui", _THIS_DIR / "ui" / "__init__.py")
-    if spec is None or spec.loader is None:
-        raise ImportError("Cannot load mygame UI module")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["mygame_ui"] = module
-    spec.loader.exec_module(module)
-    return module.MyGameWidget(parent)
+    module = load_module_from_file(_UI_MODULE_NAME, _THIS_DIR / "ui" / "__init__.py")
+    widget_factory = getattr(module, "MyGameWidget", None)
+    if widget_factory is None:
+        raise ImportError("Cannot load MyGameWidget from UI module")
+    return widget_factory(parent)
 
 
 manifest = PluginManifest(
