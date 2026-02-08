@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional, TypeVar
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
+from PySide6.QtCore import QCoreApplication, QObject, QRunnable, QThreadPool, Signal, Slot
 
 _T = TypeVar("_T")
 
@@ -79,9 +79,11 @@ def run_in_worker(
     """
     worker_pool = pool or QThreadPool.globalInstance()
     handle = WorkerHandle()
-    # Keep signal source independent from short-lived widget parents.
-    # Parent destruction still cancels callbacks via WorkerHandle below.
-    signals = _WorkerSignals()
+    # Bind signals to app lifetime so sender isn't destroyed before queued delivery.
+    signal_parent: Optional[QObject] = QCoreApplication.instance()
+    if signal_parent is None:
+        signal_parent = parent
+    signals = _WorkerSignals(signal_parent)
 
     def _done(result: object) -> None:
         if handle.cancelled:
