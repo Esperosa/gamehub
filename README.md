@@ -70,6 +70,7 @@
 - Oddělené vrstvy `engine / solver / ui` pro každou hru
 - Tisk/PDF export pro `Sudoku`, `KenKen`, `Slitherlink`
 - One-file release pipeline (Windows + Linux artifacts + SHA256)
+- Přepínač jazyka hubu `Čeština/English` (perzistence do AppData `settings.json`)
 
 ## Solver Guarantees
 
@@ -180,6 +181,11 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - `.github/workflows/ci.yml` - CI kontrola (`ruff`, `mypy`, `pytest`)
 - `.github/workflows/codeql.yml` - security code scanning (CodeQL)
 - `benchmarks/README.md` - benchmark artefakty a jejich kontext
+
+### Jazyková politika
+
+- Hub shell (`home`, card metadata, systémové dialogy) podporuje `cs/en` přepínač.
+- Některé interní texty přímo ve hrách jsou zatím `cs-first`; migrace na plný i18n je postupná.
 
 ## Co v aplikaci je
 

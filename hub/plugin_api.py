@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 
 WidgetFactory = Callable[[Optional[QWidget]], QWidget]
 SettingsFactory = Callable[[], Dict[str, Any]]
+I18nTextMap = Dict[str, str]
 
 
 @runtime_checkable
@@ -44,11 +45,43 @@ class PluginManifest:
     author: str = ""
     icon_path: Optional[str] = None
     graphic_text: Optional[str] = None
+    name_i18n: Optional[I18nTextMap] = None
+    description_i18n: Optional[I18nTextMap] = None
     default_settings: Optional[SettingsFactory] = None
     settings_schema: Optional[SettingsFactory] = None
 
 
 _PLUGIN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def resolve_i18n_text(mapping: Optional[I18nTextMap], language: str, fallback: str) -> str:
+    """Resolve localized text by language with safe fallback."""
+    if not mapping:
+        return fallback
+    value = (
+        mapping.get(language)
+        or mapping.get(language.split("-")[0])
+        or mapping.get("en")
+        or mapping.get("cs")
+    )
+    if isinstance(value, str) and value.strip():
+        return value
+    return fallback
+
+
+def _validate_i18n_map(value: Optional[I18nTextMap], field_name: str, errors: List[str]) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        errors.append(f"{field_name} must be a dict[str, str]")
+        return
+    for lang, text in value.items():
+        if not isinstance(lang, str) or not lang.strip():
+            errors.append(f"{field_name} has invalid language key")
+            return
+        if not isinstance(text, str) or not text.strip():
+            errors.append(f"{field_name} has empty text for language '{lang}'")
+            return
 
 
 def validate_manifest(manifest: PluginManifest) -> List[str]:
@@ -78,5 +111,8 @@ def validate_manifest(manifest: PluginManifest) -> List[str]:
 
     if manifest.settings_schema is not None and not callable(manifest.settings_schema):
         errors.append("settings_schema must be callable")
+
+    _validate_i18n_map(manifest.name_i18n, "name_i18n", errors)
+    _validate_i18n_map(manifest.description_i18n, "description_i18n", errors)
 
     return errors

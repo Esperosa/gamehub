@@ -31,6 +31,14 @@ manifest = PluginManifest(
     id="mastermind",
     name="Mastermind",
     description="Uhádněte tajný barevný kód pomocí logické dedukce",
+    name_i18n={
+        "cs": "Mastermind",
+        "en": "Mastermind",
+    },
+    description_i18n={
+        "cs": "Uhádněte tajný barevný kód pomocí logické dedukce",
+        "en": "Guess the secret color code using logical deduction",
+    },
     version="1.0.0",
     author="GameHub",
     graphic_text="● ● ● ●",

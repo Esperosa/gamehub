@@ -22,6 +22,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - GitHub Pages landing page:
   - `docs/index.html`
   - `docs/media/brainhub.png`
+- Hub i18n baseline (`cs/en`):
+  - `hub/i18n.py`
+  - persisted language setting in AppData `settings.json`
+  - runtime language switch in `hub/main_window.py`
+  - localized plugin card metadata via `PluginManifest.name_i18n` / `description_i18n`
 
 ### Changed
 
@@ -32,6 +37,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Updated branding docs and generation flow:
   - `docs/repository_branding.md`
   - `scripts/generate_repo_branding.py`
+- `README.md` and `ARCHITECTURE.md` updated with language policy and i18n plugin metadata contract
 
 ## [0.6.1] - 2026-02-08
 

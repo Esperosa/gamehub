@@ -31,6 +31,14 @@ manifest = PluginManifest(
     id="sudoku",
     name="Sudoku",
     description="Klasické sudoku varianty 4×4, 6×6, 9×9 a 16×16",
+    name_i18n={
+        "cs": "Sudoku",
+        "en": "Sudoku",
+    },
+    description_i18n={
+        "cs": "Klasické sudoku varianty 4×4, 6×6, 9×9 a 16×16",
+        "en": "Classic Sudoku variants 4x4, 6x6, 9x9 and 16x16",
+    },
     version="1.0.0",
     author="GameHub",
     graphic_text="1 2 3",

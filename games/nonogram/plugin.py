@@ -31,6 +31,14 @@ manifest = PluginManifest(
     id="nonogram",
     name="Nonogram",
     description="Logická hra - vyplňuj políčka podle číselných indicií a odhal obrázek",
+    name_i18n={
+        "cs": "Nonogram",
+        "en": "Nonogram",
+    },
+    description_i18n={
+        "cs": "Logická hra - vyplňuj políčka podle číselných indicií a odhal obrázek",
+        "en": "Fill cells using row and column clues to reveal a picture",
+    },
     version="1.0.0",
     author="GameHub",
     graphic_text="█ ▄ █",

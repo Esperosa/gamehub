@@ -31,6 +31,14 @@ manifest = PluginManifest(
     id="slitherlink",
     name="Slitherlink",
     description="Nakresli uzavřenou smyčku podle číselných indicií",
+    name_i18n={
+        "cs": "Slitherlink",
+        "en": "Slitherlink",
+    },
+    description_i18n={
+        "cs": "Nakresli uzavřenou smyčku podle číselných indicií",
+        "en": "Draw one closed loop using numeric clues",
+    },
     version="1.0.0",
     author="GameHub",
     graphic_text="○─○",

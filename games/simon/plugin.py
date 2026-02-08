@@ -31,6 +31,14 @@ manifest = PluginManifest(
     id="simon",
     name="Simon",
     description="Zapamatuj si a zopakuj světelnou sekvenci",
+    name_i18n={
+        "cs": "Simon",
+        "en": "Simon",
+    },
+    description_i18n={
+        "cs": "Zapamatuj si a zopakuj světelnou sekvenci",
+        "en": "Memorize and repeat the light sequence",
+    },
     version="1.0.0",
     author="GameHub",
     graphic_text="◢◣\n◥◤",
