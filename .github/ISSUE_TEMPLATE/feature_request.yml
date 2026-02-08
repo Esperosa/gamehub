@@ -1,34 +1,34 @@
-name: Feature request
-description: Suggest an improvement for GameHub.
+name: Návrh vylepšení
+description: Navrhni zlepšení pro GameHub.
 title: "feat: "
 labels: [enhancement]
 body:
   - type: input
     id: problem
     attributes:
-      label: Problem
-      description: What user/problem does this solve?
-      placeholder: It is hard to ...
+      label: Problém
+      description: Jaký uživatelský problém to řeší?
+      placeholder: Je složité ...
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
-      description: Describe the expected behavior and UX.
+      label: Navrhované řešení
+      description: Popiš očekávané chování a UX.
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives considered
+      label: Zvažované alternativy
   - type: dropdown
     id: impact
     attributes:
-      label: Impact
+      label: Dopad
       options:
-        - High
-        - Medium
-        - Low
+        - Vysoký
+        - Střední
+        - Nízký
     validations:
       required: true

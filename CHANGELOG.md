@@ -32,6 +32,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Updated branding docs and generation flow:
   - `docs/repository_branding.md`
   - `scripts/generate_repo_branding.py`
+- Repository language consistency pass (GitHub-facing text switched to Czech-first):
+  - `README.md`
+  - `docs/index.html`
+  - `.github/ISSUE_TEMPLATE/*`
+  - `.github/PULL_REQUEST_TEMPLATE.md`
+  - `SECURITY.md`
+  - `CODE_OF_CONDUCT.md`
+- In-app language switch remains intentionally disabled as TODO snippet in:
+  - `hub/main_window.py`
 
 ## [0.6.1] - 2026-02-08
 

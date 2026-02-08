@@ -1,25 +1,25 @@
-# Security Policy
+# Bezpečnostní Politika
 
-## Supported Versions
+## Podporované Verze
 
-Security fixes are currently provided for the latest release branch on `main`.
+Bezpečnostní opravy jsou aktuálně poskytované pro nejnovější release větev na `main`.
 
-## Reporting a Vulnerability
+## Nahlášení Zranitelnosti
 
-Please do not open public issues for security problems.
+Prosím neotevírej veřejný issue pro bezpečnostní problém.
 
-1. Open a private advisory: `Security -> Advisories -> Report a vulnerability`
-   or use this direct link:
+1. Otevři privátní advisory: `Security -> Advisories -> Report a vulnerability`
+   nebo použij přímý odkaz:
    `https://github.com/Esperosa/gamehub/security/advisories/new`
-2. Include:
-   - affected version/commit
-   - impact and attack scenario
-   - minimal reproduction steps
-   - optional patch suggestion
-3. Expect an initial response within 72 hours.
+2. Uveď:
+   - zasaženou verzi/commit
+   - dopad a scénář útoku
+   - minimální kroky reprodukce
+   - případný návrh opravy
+3. První reakci očekávej do 72 hodin.
 
-## Disclosure Process
+## Proces Zveřejnění
 
-- We validate and triage the report.
-- We prepare a fix and release notes.
-- We publish the advisory after a fix is available.
+- Ověříme a zatřídíme hlášení.
+- Připravíme opravu a release poznámky.
+- Advisory zveřejníme po dostupnosti opravy.

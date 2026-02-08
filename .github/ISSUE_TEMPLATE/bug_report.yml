@@ -1,61 +1,61 @@
-name: Bug report
-description: Report a reproducible bug in GameHub.
+name: Nahlášení chyby
+description: Nahlásit reprodukovatelnou chybu v GameHubu.
 title: "bug: "
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting. Please fill all required fields.
+        Díky za nahlášení. Prosím vyplň všechna povinná pole.
   - type: input
     id: summary
     attributes:
-      label: Summary
-      description: What is broken?
-      placeholder: Short bug summary
+      label: Shrnutí
+      description: Co je rozbité?
+      placeholder: Krátké shrnutí chyby
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Steps to reproduce
-      description: Exact sequence to reproduce the issue.
+      label: Kroky reprodukce
+      description: Přesná sekvence kroků pro reprodukci.
       placeholder: |
-        1. Open ...
-        2. Click ...
-        3. Observe ...
+        1. Otevři ...
+        2. Klikni ...
+        3. Výsledek ...
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected behavior
+      label: Očekávané chování
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
-      label: Actual behavior
+      label: Aktuální chování
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Version
-      description: Release tag or commit hash.
+      label: Verze
+      description: Release tag nebo commit hash.
       placeholder: v0.6.1 / 872219d
     validations:
       required: true
   - type: input
     id: platform
     attributes:
-      label: Platform
-      description: OS + Python/runtime details.
+      label: Platforma
+      description: OS + Python/runtime detaily.
       placeholder: Windows 11 / Python 3.12
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Logs / screenshots
-      description: Include relevant runtime.log excerpt or screenshot.
+      label: Logy / screenshoty
+      description: Přilož relevantní část `runtime.log` nebo screenshot.

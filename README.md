@@ -21,73 +21,79 @@
   <img src="docs/media/repo_hero.png" alt="GameHub hero" width="100%" />
 </p>
 
-## Gameplay Preview
+## Ukázky Hraní
 
-| Hub | Print Dialog | PDF Preview |
+| Hub | Dialog Tisku | Náhled PDF |
 |---|---|---|
-| ![Hub gameplay](docs/media/clips/hub.webp) | ![Print dialog gameplay](docs/media/clips/print_dialog.webp) | ![PDF preview gameplay](docs/media/clips/pdf_preview.webp) |
+| ![Ukázka Hubu](docs/media/clips/hub.webp) | ![Ukázka dialogu tisku](docs/media/clips/print_dialog.webp) | ![Ukázka náhledu PDF](docs/media/clips/pdf_preview.webp) |
 
 | 2048 | KenKen | Mastermind |
 |---|---|---|
-| ![2048 gameplay](docs/media/clips/game2048.webp) | ![KenKen gameplay](docs/media/clips/kenken.webp) | ![Mastermind gameplay](docs/media/clips/mastermind.webp) |
+| ![Ukázka 2048](docs/media/clips/game2048.webp) | ![Ukázka KenKen](docs/media/clips/kenken.webp) | ![Ukázka Mastermind](docs/media/clips/mastermind.webp) |
 
 | Nonogram | Othello | Piskvorky |
 |---|---|---|
-| ![Nonogram gameplay](docs/media/clips/nonogram.webp) | ![Othello gameplay](docs/media/clips/othello.webp) | ![Piskvorky gameplay](docs/media/clips/piskvorky.webp) |
+| ![Ukázka Nonogram](docs/media/clips/nonogram.webp) | ![Ukázka Othello](docs/media/clips/othello.webp) | ![Ukázka Piškvorky](docs/media/clips/piskvorky.webp) |
 
 | Simon | Slitherlink | Sudoku |
 |---|---|---|
-| ![Simon gameplay](docs/media/clips/simon.webp) | ![Slitherlink gameplay](docs/media/clips/slitherlink.webp) | ![Sudoku gameplay](docs/media/clips/sudoku.webp) |
+| ![Ukázka Simon](docs/media/clips/simon.webp) | ![Ukázka Slitherlink](docs/media/clips/slitherlink.webp) | ![Ukázka Sudoku](docs/media/clips/sudoku.webp) |
 
-## Quick Links
+## Rychlé Odkazy
 
-| Download | Quick Start | Architecture | Print/PDF | Benchmarks | Security | Pages |
+| Stažení | Rychlý start | Architektura | Tisk/PDF | Benchmarky | Bezpečnost | Pages |
 |---|---|---|---|---|---|---|
 | [Releases](https://github.com/Esperosa/gamehub/releases) | [Rychlý start](#rychlý-start) | [ARCHITECTURE.md](ARCHITECTURE.md) | [print_export_samples.md](docs/print_export_samples.md) | [benchmarks/README.md](benchmarks/README.md) | [SECURITY.md](SECURITY.md) | [`docs/index.html`](docs/index.html) |
 
-## GitHub Branding
+## Branding Repozitáře
 
 - Social preview obrázek: `docs/media/social_preview.png`
-- README hero: `docs/media/repo_hero.png`
-- Pages landing page: `docs/index.html`
+- README hero obrázek: `docs/media/repo_hero.png`
+- Pages landing stránka: `docs/index.html`
 - Gameplay klipy (8s, WebP): `docs/media/clips/*.webp`
-- Regenerace assetu: `python scripts/generate_repo_branding.py --output-dir docs/media`
+- Regenerace assetů: `python scripts/generate_repo_branding.py --output-dir docs/media`
 - Regenerace gameplay klipu: `python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 8 --fps 10 --width 1280 --height 720`
 - Manuál pro repo branding: `docs/repository_branding.md`
-- Publikace landing page: GitHub `Settings -> Pages`, source `main` + `/docs`
+- Publikace landing stránky: GitHub `Settings -> Pages`, source `main` + `/docs`
 
-## Download
+## Stažení
 
-- Latest stable build: [GitHub Releases](https://github.com/Esperosa/gamehub/releases)
+- Nejnovější stabilní build: [GitHub Releases](https://github.com/Esperosa/gamehub/releases)
 - Windows: `GameHub_*_windows_x64.exe` (+ `.zip`)
-- Linux (optional): `GameHub_*_linux_x86_64` (+ `.tar.gz`)
+- Linux (volitelné): `GameHub_*_linux_x86_64` (+ `.tar.gz`)
 - Každý release obsahuje `SHA256SUMS.txt` pro ověření integrity.
 
-## Features
+## Funkce
 
 - 9 logických her v jednom launcheru (`2048`, `KenKen`, `Mastermind`, `Nonogram`, `Othello`, `Piškvorky`, `Simon`, `Slitherlink`, `Sudoku`)
 - Plugin-first architektura (`games/<hra>/plugin.py`)
 - Oddělené vrstvy `engine / solver / ui` pro každou hru
 - Tisk/PDF export pro `Sudoku`, `KenKen`, `Slitherlink`
-- One-file release pipeline (Windows + Linux artifacts + SHA256)
+- One-file release pipeline (Windows + Linux artefakty + SHA256)
 
-## Solver Guarantees
+## Jazyková Konzistence
 
-| Game | Co je garantováno | Jak je to ověřené |
+- GitHub dokumentace je vedená `cs-first` (čeština jako hlavní jazyk).
+- In-app přepínač jazyka je nyní záměrně vypnutý a ponechaný jako TODO komentář v `hub/main_window.py`.
+- Cíl tohoto kola byl sjednotit jazyk především na GitHubu (README, šablony issue/PR, bezpečnostní dokumenty, landing page).
+
+## Garance Solverů
+
+| Hra | Co je garantováno | Jak je to ověřené |
 |---|---|---|
-| Sudoku | Generátor přijme odebrání čísla jen pokud nenašel alternativní řešení k referenčnímu řešení. | `games/sudoku/engine.py`, audit script `scripts/audit_solver_claims.py` |
+| Sudoku | Generátor přijme odebrání čísla jen pokud nenašel alternativní řešení k referenčnímu řešení. | `games/sudoku/engine.py`, audit skript `scripts/audit_solver_claims.py` |
 | Slitherlink | Generátor vrací puzzle jen pokud SAT uniqueness check vrátí právě 1 řešení. | `games/slitherlink/engine.py` |
-| KenKen | Calcudoku generator negarantuje unikátní řešení každého puzzle. | `games/kenken/engine.py`, audit report `docs/solver_claims_audit.md` |
+| KenKen | Calcudoku generátor negarantuje unikátní řešení každého puzzle. | `games/kenken/engine.py`, audit report `docs/solver_claims_audit.md` |
 | Nonogram | Generované puzzle má validní referenční řešení, unikátnost není tvrdě garantovaná. | `games/nonogram/engine.py`, audit report `docs/solver_claims_audit.md` |
 
-## Support Matrix
+## Podporované Platformy
 
 | Platform | Stav | Artefakt v Releases |
 |---|---|---|
 | Windows x64 | testováno | `.exe`, `.zip` |
-| Linux x86_64 | optional (best effort) | binárka, `.tar.gz` |
+| Linux x86_64 | volitelné (best effort) | binárka, `.tar.gz` |
 
-## Screenshots
+## Snímky Obrazovky
 
 Aktuální screenshoty jsou generované z **lokální aktuální verze** přes `scripts/capture_screenshots.py`.
 Každá hra je otevřená v hubu, rozehraná a pořízená ve stavu, kde jsou vidět všechny hlavní UI prvky.
@@ -104,7 +110,7 @@ Skript automaticky:
 - provede minimální rozehrání (hint/tah),
 - ověří, že obrázky nejsou prázdné a mají validní rozměr.
 
-Print dialog screenshoty + PDF sample exporty:
+Screenshoty dialogu tisku + ukázkové PDF exporty:
 
 ```bash
 .venv\Scripts\python scripts/generate_print_assets.py --media-dir docs/media --sample-dir docs/samples
@@ -116,7 +122,7 @@ Branding hero/social preview assety:
 .venv\Scripts\python scripts/generate_repo_branding.py --output-dir docs/media
 ```
 
-Gameplay klipy (8s, Hub + hry + print dialog + PDF preview):
+Gameplay klipy (8s, Hub + hry + dialog tisku + náhled PDF):
 
 ```bash
 .venv\Scripts\python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 8 --fps 10 --width 1280 --height 720
@@ -142,11 +148,11 @@ Gameplay klipy (8s, Hub + hry + print dialog + PDF preview):
 |---|---|
 | ![Slitherlink](docs/media/slitherlink.png) | ![Sudoku](docs/media/sudoku.png) |
 
-| Print Sudoku | Print KenKen | Print Slitherlink |
+| Tisk Sudoku | Tisk KenKen | Tisk Slitherlink |
 |---|---|---|
 | ![Print Sudoku](docs/media/print_dialog_sudoku.png) | ![Print KenKen](docs/media/print_dialog_kenken.png) | ![Print Slitherlink](docs/media/print_dialog_slitherlink.png) |
 
-## PDF Export Samples
+## Ukázky PDF Exportu
 
 Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 
@@ -164,12 +170,12 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - Maintainer: [@Esperosa](https://github.com/Esperosa)
 - Právní metadata: `LICENSE`, `NOTICE`
 
-## Documentation
+## Dokumentace
 
 - `ARCHITECTURE.md` - načítání pluginů, lifecycle, vrstvy hry, template pro novou hru
 - `CONTRIBUTING.md` - dev setup, testy, coding style, contribution workflow
 - `CHANGELOG.md` - verze a změny
-- `SECURITY.md` - policy pro soukromé hlášení zranitelností
+- `SECURITY.md` - pravidla pro soukromé hlášení zranitelností
 - `CODE_OF_CONDUCT.md` - pravidla komunikace v repozitáři
 - `docs/sudoku_generation_performance.md` - srovnání variant generování Sudoku 16x16 hard a výsledky benchmarku
 - `docs/solver_claims_audit.md` - transparentní audit tvrzení o unikátnosti/řešitelnosti
@@ -178,7 +184,7 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - `scripts/generate_gameplay_clips.py` - automatická tvorba 8s gameplay klipů pro README
 - `scripts/audit_solver_claims.py` - reprodukovatelný audit claimů (Sudoku/KenKen/Nonogram)
 - `.github/workflows/ci.yml` - CI kontrola (`ruff`, `mypy`, `pytest`)
-- `.github/workflows/codeql.yml` - security code scanning (CodeQL)
+- `.github/workflows/codeql.yml` - bezpečnostní code scanning (CodeQL)
 - `benchmarks/README.md` - benchmark artefakty a jejich kontext
 
 ## Co v aplikaci je
@@ -409,7 +415,7 @@ requirements.txt
 2. Přidej `plugin.py`
 3. V `plugin.py` exportuj `manifest = PluginManifest(...)`
 
-## Build a Release Artifact
+## Sestavení Release Artefaktů
 
 Windows:
 
@@ -434,7 +440,7 @@ Kompatibilní wrapper (legacy):
 .\build_exe.ps1 -Version v1.2.3
 ```
 
-## Packaging a Release
+## Publikace Release
 
 1. Označ release tag:
 
@@ -454,7 +460,7 @@ git push origin v1.2.3
 sha256sum -c SHA256SUMS.txt
 ```
 
-## Reproducible Build
+## Reprodukovatelný Build
 
 - Runtime/build závislosti jsou zamknuté v `requirements-lock.txt`.
 - Zdroj pro lock: `requirements-build.in`.

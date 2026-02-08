@@ -1,25 +1,25 @@
-# Code of Conduct
+# Kodex Chování
 
-## Our Commitment
+## Náš Závazek
 
-We want GameHub to be a respectful, technically focused community.
+Chceme, aby byl GameHub respektující a technicky zaměřená komunita.
 
-## Expected Behavior
+## Očekávané Chování
 
-- Be respectful and constructive.
-- Focus on reproducible facts and actionable feedback.
-- Assume good intent.
+- Chovej se s respektem a konstruktivně.
+- Zaměř se na reprodukovatelná fakta a akční zpětnou vazbu.
+- Předpokládej dobrou vůli.
 
-## Unacceptable Behavior
+## Nepřijatelné Chování
 
-- Harassment, personal attacks, or discrimination.
-- Spam, trolling, or intentionally disruptive behavior.
-- Sharing private information without consent.
+- Obtěžování, osobní útoky nebo diskriminace.
+- Spam, trolling nebo úmyslně rušivé chování.
+- Sdílení soukromých informací bez souhlasu.
 
-## Enforcement
+## Vymáhání
 
-Maintainers may remove content or restrict participation for behavior that violates this policy.
+Maintaineři mohou odstranit obsah nebo omezit účast za chování, které porušuje tato pravidla.
 
-## Reporting
+## Nahlášení
 
-Report conduct issues to repository maintainers via GitHub private channels.
+Problémy s chováním nahlas maintainerům přes privátní kanály na GitHubu.

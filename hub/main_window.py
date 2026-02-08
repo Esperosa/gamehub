@@ -173,6 +173,14 @@ class MainWindow(QMainWindow):
         # act_quit.triggered.connect(self.close)
         # self.menuBar().addAction(act_quit)
 
+        # TODO(i18n, requested): Hub runtime language switch is intentionally disabled.
+        # Keep this starter snippet for future re-enable without touching game widgets:
+        # lang_label = QLabel("Jazyk:")
+        # lang_combo = QComboBox()
+        # lang_combo.addItem("Čeština", "cs")
+        # lang_combo.addItem("English", "en")
+        # lang_combo.currentIndexChanged.connect(self._on_language_changed)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._bg.setGeometry(self.rect())
