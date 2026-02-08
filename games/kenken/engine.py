@@ -674,6 +674,21 @@ class KenKenState:
     cages: List[Cage]
     solution: List[int]
     seed: int
+    _cell_to_cage: Dict[int, int] = field(default_factory=dict, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._rebuild_cage_index()
+
+    def _rebuild_cage_index(self) -> None:
+        n = self.size
+        index: Dict[int, int] = {}
+        for cage_id, cage in enumerate(self.cages):
+            for r, c in cage.cells:
+                if not (0 <= r < n and 0 <= c < n):
+                    continue
+                cell_idx = r * n + c
+                index[cell_idx] = cage_id
+        self._cell_to_cage = index
     
     @property
     def size(self) -> int:
@@ -684,11 +699,16 @@ class KenKenState:
     
     def set(self, row: int, col: int, value: int) -> None:
         self.board[row * self.size + col] = value
+
+    def get_cage_id_at(self, row: int, col: int) -> Optional[int]:
+        return self._cell_to_cage.get(row * self.size + col)
     
     def get_cage_at(self, row: int, col: int) -> Optional[Cage]:
-        for cage in self.cages:
-            if (row, col) in cage.cells:
-                return cage
+        cage_id = self.get_cage_id_at(row, col)
+        if cage_id is None:
+            return None
+        if 0 <= cage_id < len(self.cages):
+            return self.cages[cage_id]
         return None
     
     def get_hint(self) -> Optional[Tuple[int, int, int]]:

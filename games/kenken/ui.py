@@ -205,6 +205,10 @@ class KenKenBoard(QWidget):
         self._overlay_subtitle = ""
         self._overlay_button_callback = None
         self._overlay_button_rect: Optional[QRectF] = None
+
+        # Render caches (rebuilt when puzzle state changes)
+        self._cage_edges_cache: Dict[int, Set[Tuple[Tuple[int, int], str]]] = {}
+        self._cage_top_left_cache: Dict[int, Tuple[int, int]] = {}
         
         # Callbacks
         self.on_complete = None
@@ -216,6 +220,8 @@ class KenKenBoard(QWidget):
         
         if loading:
             self.state = None
+            self._cage_edges_cache.clear()
+            self._cage_top_left_cache.clear()
             self._loading_angle = 0.0
             if not self._loading_timer:
                 self._loading_timer = QTimer(self)
@@ -241,6 +247,8 @@ class KenKenBoard(QWidget):
         self._no_templates = True
         self._loading_size = size
         self.state = None
+        self._cage_edges_cache.clear()
+        self._cage_top_left_cache.clear()
         if self._loading_timer:
             self._loading_timer.stop()
         self.update()
@@ -253,7 +261,17 @@ class KenKenBoard(QWidget):
         self._no_templates = False
         self._stop_confetti()
         self._hide_overlay()
+        self._rebuild_render_cache()
         self.update()
+
+    def _rebuild_render_cache(self) -> None:
+        self._cage_edges_cache.clear()
+        self._cage_top_left_cache.clear()
+        if not self.state:
+            return
+        for cage_id, cage in enumerate(self.state.cages):
+            self._cage_edges_cache[cage_id] = self._get_cage_edges(cage)
+            self._cage_top_left_cache[cage_id] = self._get_cage_top_left(cage)
     
     def _board_geometry(self) -> Tuple[float, float, float, float]:
         size = min(self.width(), self.height())
@@ -679,8 +697,11 @@ class KenKenBoard(QWidget):
         
         # Draw cage borders (thick lines)
         painter.setPen(QPen(COLOR_CAGE_LINE, 2.5))
-        for cage in self.state.cages:
-            edges = self._get_cage_edges(cage)
+        for cage_id, cage in enumerate(self.state.cages):
+            edges = self._cage_edges_cache.get(cage_id)
+            if edges is None:
+                edges = self._get_cage_edges(cage)
+                self._cage_edges_cache[cage_id] = edges
             for (r, c), direction in edges:
                 x = left + c * cell
                 y = top + r * cell
@@ -707,8 +728,12 @@ class KenKenBoard(QWidget):
         
         op_symbols = {'+': '+', '-': '−', '*': '×', '/': '÷', '': ''}
         
-        for cage in self.state.cages:
-            tr, tc = self._get_cage_top_left(cage)
+        for cage_id, cage in enumerate(self.state.cages):
+            top_left = self._cage_top_left_cache.get(cage_id)
+            if top_left is None:
+                top_left = self._get_cage_top_left(cage)
+                self._cage_top_left_cache[cage_id] = top_left
+            tr, tc = top_left
             x = left + tc * cell + 3
             y = top + tr * cell + 2
             
