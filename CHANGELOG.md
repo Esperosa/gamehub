@@ -9,6 +9,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - No unreleased changes yet.
 
+## [0.6.1] - 2026-02-08
+
+### Fixed
+
+- Release workflow packaging now includes tracked `GameHub_allmods.spec`.
+- `.gitignore` keeps ignoring transient spec files but explicitly allows:
+  - `GameHub_allmods.spec`
+
 ## [0.6.0] - 2026-02-08
 
 ### Added
