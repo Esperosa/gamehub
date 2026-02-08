@@ -49,6 +49,14 @@ _DIFFICULTY_EMPTY_RANGES = {
     },
 }
 
+_UNIQUENESS_CHECK_TIMEOUT_S = {
+    16: {
+        "easy": 0.03,
+        "medium": 0.05,
+        "hard": 0.08,
+    },
+}
+
 
 @dataclass
 class SudokuConfig:
@@ -242,6 +250,12 @@ class SudokuSolver:
         self.box_r = config.box_rows
         self.box_c = config.box_cols
         self.values = list(range(1, config.num_range + 1))
+        self._full_mask = (1 << self.size) - 1
+        box_cols = self.size // self.box_c
+        self._box_index = [
+            ((idx // self.size) // self.box_r) * box_cols + ((idx % self.size) // self.box_c)
+            for idx in range(self.size * self.size)
+        ]
     
     def is_valid(self, board: List[int], row: int, col: int, num: int) -> bool:
         """Check if placing num at (row, col) is valid."""
@@ -268,9 +282,12 @@ class SudokuSolver:
     
     def solve(self, board: List[int]) -> Optional[List[int]]:
         """Solve the puzzle, return solution or None if unsolvable."""
-        board = board.copy()
-        if self._solve_recursive(board):
-            return board
+        prepared = self._prepare_search_state(board)
+        if prepared is None:
+            return None
+        work, row_free, col_free, box_free = prepared
+        if self._solve_mask_recursive(work, row_free, col_free, box_free):
+            return work
         return None
 
     def enumerate_solutions(
@@ -395,11 +412,46 @@ class SudokuSolver:
     
     def count_solutions(self, board: List[int], limit: int = 2) -> int:
         """Count solutions up to limit. Returns exact count if <= limit."""
-        self._solution_count = 0
-        self._solution_limit = limit
-        board = board.copy()
-        self._count_recursive(board)
-        return self._solution_count
+        if limit <= 0:
+            return 0
+        prepared = self._prepare_search_state(board)
+        if prepared is None:
+            return 0
+        work, row_free, col_free, box_free = prepared
+        return self._count_mask_recursive(work, row_free, col_free, box_free, limit)
+
+    def has_alternative_solution(self, board: List[int], reference_solution: List[int]) -> bool:
+        """
+        Return True when puzzle has any valid solution different from reference_solution.
+
+        This is equivalent to uniqueness testing when reference_solution is known valid.
+        """
+        return self.has_alternative_solution_with_timeout(board, reference_solution, timeout_s=None)
+
+    def has_alternative_solution_with_timeout(
+        self,
+        board: List[int],
+        reference_solution: List[int],
+        timeout_s: Optional[float],
+    ) -> bool:
+        """
+        Return True when puzzle has any valid alternative solution.
+
+        If timeout_s is set and the check exceeds the budget, returns True conservatively.
+        """
+        if len(reference_solution) != self.size * self.size:
+            return False
+        prepared = self._prepare_search_state(board)
+        if prepared is None:
+            return False
+        work, row_free, col_free, box_free = prepared
+        self._alt_deadline = None if timeout_s is None else (time.perf_counter() + timeout_s)
+        self._alt_clock_budget = 0
+        self._alt_timed_out = False
+        found = self._exists_alternative_recursive(work, row_free, col_free, box_free, reference_solution, False)
+        if self._alt_timed_out:
+            return True
+        return found
     
     def _count_recursive(self, board: List[int]) -> bool:
         """Returns True if should stop counting."""
@@ -419,6 +471,215 @@ class SudokuSolver:
                 board[empty_idx] = 0
                 return True
             board[empty_idx] = 0
+
+        return False
+
+    def _prepare_search_state(
+        self, board: List[int]
+    ) -> Optional[Tuple[List[int], List[int], List[int], List[int]]]:
+        total = self.size * self.size
+        if len(board) != total:
+            return None
+
+        work = [int(v) for v in board]
+        row_free = [self._full_mask] * self.size
+        col_free = [self._full_mask] * self.size
+        box_free = [self._full_mask] * self.size
+
+        for idx, val in enumerate(work):
+            if val == 0:
+                continue
+            if val < 1 or val > self.size:
+                return None
+            bit = 1 << (val - 1)
+            row = idx // self.size
+            col = idx % self.size
+            box = self._box_index[idx]
+            if (row_free[row] & bit) == 0 or (col_free[col] & bit) == 0 or (box_free[box] & bit) == 0:
+                return None
+            row_free[row] &= ~bit
+            col_free[col] &= ~bit
+            box_free[box] &= ~bit
+
+        return work, row_free, col_free, box_free
+
+    def _select_cell_mask(
+        self, board: List[int], row_free: List[int], col_free: List[int], box_free: List[int]
+    ) -> Tuple[int, int]:
+        best_idx = -1
+        best_mask = 0
+        best_count = self.size + 1
+
+        for idx, value in enumerate(board):
+            if value != 0:
+                continue
+            row = idx // self.size
+            col = idx % self.size
+            box = self._box_index[idx]
+            mask = row_free[row] & col_free[col] & box_free[box]
+            count = mask.bit_count()
+            if count == 0:
+                return idx, 0
+            if count < best_count:
+                best_count = count
+                best_idx = idx
+                best_mask = mask
+                if count == 1:
+                    break
+
+        return best_idx, best_mask
+
+    def _solve_mask_recursive(
+        self, board: List[int], row_free: List[int], col_free: List[int], box_free: List[int]
+    ) -> bool:
+        idx, mask = self._select_cell_mask(board, row_free, col_free, box_free)
+        if idx == -1:
+            return True
+        if mask == 0:
+            return False
+
+        row = idx // self.size
+        col = idx % self.size
+        box = self._box_index[idx]
+
+        while mask:
+            bit = mask & -mask
+            mask ^= bit
+            val = bit.bit_length()
+            board[idx] = val
+            row_free[row] &= ~bit
+            col_free[col] &= ~bit
+            box_free[box] &= ~bit
+
+            if self._solve_mask_recursive(board, row_free, col_free, box_free):
+                return True
+
+            row_free[row] |= bit
+            col_free[col] |= bit
+            box_free[box] |= bit
+            board[idx] = 0
+
+        return False
+
+    def _count_mask_recursive(
+        self,
+        board: List[int],
+        row_free: List[int],
+        col_free: List[int],
+        box_free: List[int],
+        limit: int,
+    ) -> int:
+        if limit <= 0:
+            return 0
+
+        idx, mask = self._select_cell_mask(board, row_free, col_free, box_free)
+        if idx == -1:
+            return 1
+        if mask == 0:
+            return 0
+
+        row = idx // self.size
+        col = idx % self.size
+        box = self._box_index[idx]
+        count = 0
+
+        while mask and count < limit:
+            bit = mask & -mask
+            mask ^= bit
+            val = bit.bit_length()
+            board[idx] = val
+            row_free[row] &= ~bit
+            col_free[col] &= ~bit
+            box_free[box] &= ~bit
+
+            count += self._count_mask_recursive(board, row_free, col_free, box_free, limit - count)
+
+            row_free[row] |= bit
+            col_free[col] |= bit
+            box_free[box] |= bit
+            board[idx] = 0
+
+        return count
+
+    def _exists_alternative_recursive(
+        self,
+        board: List[int],
+        row_free: List[int],
+        col_free: List[int],
+        box_free: List[int],
+        reference_solution: List[int],
+        differs: bool,
+    ) -> bool:
+        if self._alt_deadline is not None:
+            self._alt_clock_budget -= 1
+            if self._alt_clock_budget <= 0:
+                self._alt_clock_budget = 64
+                if time.perf_counter() >= self._alt_deadline:
+                    self._alt_timed_out = True
+                    return True
+
+        idx, mask = self._select_cell_mask(board, row_free, col_free, box_free)
+        if idx == -1:
+            return differs
+        if mask == 0:
+            return False
+
+        row = idx // self.size
+        col = idx % self.size
+        box = self._box_index[idx]
+        ref_val = int(reference_solution[idx])
+        ref_bit = 0
+        if 1 <= ref_val <= self.size:
+            ref_bit = 1 << (ref_val - 1)
+
+        # Try values different from the reference first to find alternatives early.
+        non_ref_mask = mask & ~ref_bit
+        while non_ref_mask:
+            bit = non_ref_mask & -non_ref_mask
+            non_ref_mask ^= bit
+            val = bit.bit_length()
+            board[idx] = val
+            row_free[row] &= ~bit
+            col_free[col] &= ~bit
+            box_free[box] &= ~bit
+
+            if self._exists_alternative_recursive(
+                board,
+                row_free,
+                col_free,
+                box_free,
+                reference_solution,
+                True,
+            ):
+                return True
+
+            row_free[row] |= bit
+            col_free[col] |= bit
+            box_free[box] |= bit
+            board[idx] = 0
+
+        # Also allow following the reference path; alternative may appear deeper.
+        if ref_bit and (mask & ref_bit):
+            bit = ref_bit
+            board[idx] = ref_val
+            row_free[row] &= ~bit
+            col_free[col] &= ~bit
+            box_free[box] &= ~bit
+
+            if self._exists_alternative_recursive(
+                board,
+                row_free,
+                col_free,
+                box_free,
+                reference_solution,
+                differs,
+            ):
+                return True
+
+            row_free[row] |= bit
+            col_free[col] |= bit
+            box_free[box] |= bit
+            board[idx] = 0
 
         return False
 
@@ -464,7 +725,7 @@ class SudokuGenerator:
         solution = self._generate_complete(rng)
         
         # Remove cells based on difficulty
-        board, initial = self._remove_cells(solution.copy(), difficulty, rng)
+        board, initial = self._remove_cells(solution.copy(), solution, difficulty, rng)
         
         return SudokuState(
             config=self.config,
@@ -512,7 +773,7 @@ class SudokuGenerator:
 
         return board
     
-    def _remove_cells(self, board: List[int], difficulty: str, 
+    def _remove_cells(self, board: List[int], reference_solution: List[int], difficulty: str, 
                       rng: random.Random) -> Tuple[List[int], List[bool]]:
         """Remove cells to create puzzle, ensuring unique solution.
         
@@ -540,6 +801,7 @@ class SudokuGenerator:
         
         initial = [True] * total
         removed = 0
+        uniqueness_timeout = _UNIQUENESS_CHECK_TIMEOUT_S.get(size, {}).get(difficulty)
         
         # Get removal order based on difficulty
         if difficulty == "hard":
@@ -561,8 +823,12 @@ class SudokuGenerator:
             old_val = board[idx]
             board[idx] = 0
             
-            # Check if still has unique solution
-            if self.solver.count_solutions(board, limit=2) == 1:
+            # Unique iff no alternative solution exists besides the known reference.
+            if not self.solver.has_alternative_solution_with_timeout(
+                board,
+                reference_solution,
+                timeout_s=uniqueness_timeout,
+            ):
                 initial[idx] = False
                 removed += 1
             else:

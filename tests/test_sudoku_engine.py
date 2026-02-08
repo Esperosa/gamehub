@@ -147,6 +147,20 @@ class SudokuEngineTests(unittest.TestCase):
         for solution in all_solutions[:10]:
             self._assert_valid_solution_grid(solution, config)
 
+    def test_alternative_solution_probe_detects_ambiguity(self) -> None:
+        config = SudokuConfig.from_size(4)
+        solver = SudokuSolver(config)
+        empty_board = [0] * (config.size * config.size)
+        reference = solver.solve(empty_board)
+        self.assertIsNotNone(reference)
+        assert reference is not None
+        self.assertTrue(solver.has_alternative_solution(empty_board, reference))
+
+    def test_alternative_solution_probe_reports_unique_generated_puzzle(self) -> None:
+        state = create_puzzle(size=9, difficulty="medium", seed=12345)
+        solver = SudokuSolver(SudokuConfig.from_size(9))
+        self.assertFalse(solver.has_alternative_solution(state.board, state.solution))
+
     def test_state_completion_accepts_any_valid_solution_not_only_embedded_one(self) -> None:
         config = SudokuConfig.from_size(4)
         solver = SudokuSolver(config)
