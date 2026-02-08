@@ -10,6 +10,8 @@
 
 <p align="center">
   <a href="https://github.com/Esperosa/gamehub/releases"><img src="https://img.shields.io/github/v/release/Esperosa/gamehub?label=release&style=for-the-badge" alt="Latest release"></a>
+  <a href="https://github.com/Esperosa/gamehub/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Esperosa/gamehub/ci.yml?branch=main&label=ci&style=for-the-badge" alt="CI status"></a>
+  <a href="https://github.com/Esperosa/gamehub/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/Esperosa/gamehub/codeql.yml?branch=main&label=codeql&style=for-the-badge" alt="CodeQL status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-27c2ff?style=for-the-badge" alt="MIT license"></a>
   <a href="ARCHITECTURE.md"><img src="https://img.shields.io/badge/plugin%20api-manifest%20only-8f7dff?style=for-the-badge" alt="Plugin API"></a>
   <a href="docs/print_export_samples.md"><img src="https://img.shields.io/badge/print%2FPDF-ready-f4a93a?style=for-the-badge" alt="Print and PDF"></a>
@@ -39,18 +41,20 @@
 
 ## Quick Links
 
-| Download | Quick Start | Architecture | Print/PDF | Benchmarks |
-|---|---|---|---|---|
-| [Releases](https://github.com/Esperosa/gamehub/releases) | [Rychlý start](#rychlý-start) | [ARCHITECTURE.md](ARCHITECTURE.md) | [print_export_samples.md](docs/print_export_samples.md) | [benchmarks/README.md](benchmarks/README.md) |
+| Download | Quick Start | Architecture | Print/PDF | Benchmarks | Security | Pages |
+|---|---|---|---|---|---|---|
+| [Releases](https://github.com/Esperosa/gamehub/releases) | [Rychlý start](#rychlý-start) | [ARCHITECTURE.md](ARCHITECTURE.md) | [print_export_samples.md](docs/print_export_samples.md) | [benchmarks/README.md](benchmarks/README.md) | [SECURITY.md](SECURITY.md) | [`docs/index.html`](docs/index.html) |
 
 ## GitHub Branding
 
 - Social preview obrázek: `docs/media/social_preview.png`
 - README hero: `docs/media/repo_hero.png`
+- Pages landing page: `docs/index.html`
 - Gameplay klipy (8s, WebP): `docs/media/clips/*.webp`
 - Regenerace assetu: `python scripts/generate_repo_branding.py --output-dir docs/media`
 - Regenerace gameplay klipu: `python scripts/generate_gameplay_clips.py --output-dir docs/media/clips --seconds 8 --fps 10 --width 1280 --height 720`
 - Manuál pro repo branding: `docs/repository_branding.md`
+- Publikace landing page: GitHub `Settings -> Pages`, source `main` + `/docs`
 
 ## Download
 
@@ -66,6 +70,15 @@
 - Oddělené vrstvy `engine / solver / ui` pro každou hru
 - Tisk/PDF export pro `Sudoku`, `KenKen`, `Slitherlink`
 - One-file release pipeline (Windows + Linux artifacts + SHA256)
+
+## Solver Guarantees
+
+| Game | Co je garantováno | Jak je to ověřené |
+|---|---|---|
+| Sudoku | Generátor přijme odebrání čísla jen pokud nenašel alternativní řešení k referenčnímu řešení. | `games/sudoku/engine.py`, audit script `scripts/audit_solver_claims.py` |
+| Slitherlink | Generátor vrací puzzle jen pokud SAT uniqueness check vrátí právě 1 řešení. | `games/slitherlink/engine.py` |
+| KenKen | Calcudoku generator negarantuje unikátní řešení každého puzzle. | `games/kenken/engine.py`, audit report `docs/solver_claims_audit.md` |
+| Nonogram | Generované puzzle má validní referenční řešení, unikátnost není tvrdě garantovaná. | `games/nonogram/engine.py`, audit report `docs/solver_claims_audit.md` |
 
 ## Support Matrix
 
@@ -156,10 +169,16 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - `ARCHITECTURE.md` - načítání pluginů, lifecycle, vrstvy hry, template pro novou hru
 - `CONTRIBUTING.md` - dev setup, testy, coding style, contribution workflow
 - `CHANGELOG.md` - verze a změny
+- `SECURITY.md` - policy pro soukromé hlášení zranitelností
+- `CODE_OF_CONDUCT.md` - pravidla komunikace v repozitáři
 - `docs/sudoku_generation_performance.md` - srovnání variant generování Sudoku 16x16 hard a výsledky benchmarku
+- `docs/solver_claims_audit.md` - transparentní audit tvrzení o unikátnosti/řešitelnosti
 - `docs/print_export_samples.md` - jak vznikají print dialog screenshoty a PDF sample exporty
 - `docs/repository_branding.md` - jak regenerovat README hero/social preview assety
 - `scripts/generate_gameplay_clips.py` - automatická tvorba 8s gameplay klipů pro README
+- `scripts/audit_solver_claims.py` - reprodukovatelný audit claimů (Sudoku/KenKen/Nonogram)
+- `.github/workflows/ci.yml` - CI kontrola (`ruff`, `mypy`, `pytest`)
+- `.github/workflows/codeql.yml` - security code scanning (CodeQL)
 - `benchmarks/README.md` - benchmark artefakty a jejich kontext
 
 ## Co v aplikaci je
@@ -264,7 +283,7 @@ Níže je praktický přehled pravidel, ovládání a interní logiky (AI/solver
   - Dávkový černobílý tisk/PDF s layoutem na A4.
 - Agent/AI:
   - Constraint solver s MRV heuristikou + propagace omezení.
-  - Unikátnost řešení se ověřuje při generaci.
+  - Solver umí detekovat více řešení; aktuální Calcudoku generátor neprovádí tvrdou uniqueness smyčku.
   - Výpočty jsou optimalizované (Numba fallback na čistý Python).
 
 ### Mastermind

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 from pathlib import Path
 from typing import Sequence
 
@@ -271,6 +272,7 @@ def generate(output_dir: Path) -> list[Path]:
     outputs = [
         output_dir / "repo_hero.png",
         output_dir / "social_preview.png",
+        output_dir / "brainhub.png",
     ]
 
     for path in (logo, home, *(card for _, card in cards)):
@@ -293,6 +295,7 @@ def generate(output_dir: Path) -> list[Path]:
         home_path=home,
         game_paths=cards,
     )
+    shutil.copy2(logo, output_dir / "brainhub.png")
 
     return outputs
 

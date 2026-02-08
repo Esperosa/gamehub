@@ -7,7 +7,31 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-- No unreleased changes yet.
+### Added
+
+- Repository health/compliance baseline:
+  - CI workflow (`.github/workflows/ci.yml`) for `ruff`, `mypy`, `pytest`
+  - CodeQL workflow (`.github/workflows/codeql.yml`)
+  - Dependabot config (`.github/dependabot.yml`)
+  - Issue forms + PR template + CODEOWNERS
+  - `SECURITY.md` and `CODE_OF_CONDUCT.md`
+- Solver claim audit tooling and report:
+  - `scripts/audit_solver_claims.py`
+  - `docs/solver_claims_audit.md`
+  - `benchmarks/solver_claims_audit_2026-02-08.json`
+- GitHub Pages landing page:
+  - `docs/index.html`
+  - `docs/media/brainhub.png`
+
+### Changed
+
+- Corrected non-accurate uniqueness claims in:
+  - `games/kenken/engine.py`
+  - `games/nonogram/engine.py`
+  - `README.md` guarantee matrix and KenKen description
+- Updated branding docs and generation flow:
+  - `docs/repository_branding.md`
+  - `scripts/generate_repo_branding.py`
 
 ## [0.6.1] - 2026-02-08
 

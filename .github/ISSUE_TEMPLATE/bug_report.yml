@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible bug in GameHub.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please fill all required fields.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken?
+      placeholder: Short bug summary
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact sequence to reproduce the issue.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag or commit hash.
+      placeholder: v0.6.1 / 872219d
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS + Python/runtime details.
+      placeholder: Windows 11 / Python 3.12
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Include relevant runtime.log excerpt or screenshot.

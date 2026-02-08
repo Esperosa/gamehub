@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest an improvement for GameHub.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: input
+    id: problem
+    attributes:
+      label: Problem
+      description: What user/problem does this solve?
+      placeholder: It is hard to ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the expected behavior and UX.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - High
+        - Medium
+        - Low
+    validations:
+      required: true
