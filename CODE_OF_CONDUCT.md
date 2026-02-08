@@ -1,25 +1,26 @@
-# Kodex Chování
+# Pravidla Komunikace v Repozitáři
 
-## Náš Závazek
+Tento projekt je hlavně technické repozitářové zázemí, ne sociální platforma.
+Cíl je udržet issue/PR/discussion vlákna věcná a použitelná pro vývoj.
 
-Chceme, aby byl GameHub respektující a technicky zaměřená komunita.
+## Co Očekáváme
 
-## Očekávané Chování
+- Věcnou a respektující komunikaci.
+- Reprodukovatelné bug reporty a konkrétní návrhy.
+- Kritiku zaměřenou na problém, ne na člověka.
 
-- Chovej se s respektem a konstruktivně.
-- Zaměř se na reprodukovatelná fakta a akční zpětnou vazbu.
-- Předpokládej dobrou vůli.
+## Co Sem Nepatří
 
-## Nepřijatelné Chování
+- Osobní útoky, urážky, diskriminace.
+- Spam, trolling, záměrné rozbíjení diskuse.
+- Sdílení cizích soukromých informací bez souhlasu.
 
-- Obtěžování, osobní útoky nebo diskriminace.
-- Spam, trolling nebo úmyslně rušivé chování.
-- Sdílení soukromých informací bez souhlasu.
+## Moderování
 
-## Vymáhání
+Maintainer může upravit/skrýt komentář, zamknout vlákno nebo omezit přístup,
+pokud obsah porušuje tato pravidla.
 
-Maintaineři mohou odstranit obsah nebo omezit účast za chování, které porušuje tato pravidla.
+## Kam Psát
 
-## Nahlášení
-
-Problémy s chováním nahlas maintainerům přes privátní kanály na GitHubu.
+- Technické problémy: issue/discussion v repozitáři.
+- Bezpečnostní problémy: podle `SECURITY.md` (privátní cesta).
