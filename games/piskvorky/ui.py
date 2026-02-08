@@ -8,6 +8,7 @@ Features:
 - Async AI computation to prevent UI freezing
 - Smooth animations and visual feedback
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -19,17 +20,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Callable
 
-from PySide6.QtCore import (
-    Qt, QTimer, QRectF, QVariantAnimation, QEasingCurve, 
-    QPointF
-)
+from PySide6.QtCore import Qt, QTimer, QRectF, QVariantAnimation, QEasingCurve, QPointF
 from PySide6.QtGui import (
-    QColor, QPainter, QPen, QFont, QPainterPath, QBrush,
-    QLinearGradient, QRadialGradient
+    QColor,
+    QPainter,
+    QPen,
+    QFont,
+    QPainterPath,
+    QBrush,
+    QLinearGradient,
+    QRadialGradient,
 )
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QComboBox, QFrame, QSizePolicy, QStackedLayout, QGraphicsOpacityEffect
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QFrame,
+    QSizePolicy,
+    QStackedLayout,
+    QGraphicsOpacityEffect,
 )
 from hub.worker import WorkerHandle, run_in_worker
 
@@ -84,8 +96,8 @@ DIFF_LABELS = {"easy": "Lehká", "medium": "Střední", "hard": "Těžká"}
 BOT_RATING = {"easy": 800.0, "medium": 1200.0, "hard": 1600.0}
 
 # Colors
-COLOR_X = QColor(110, 231, 255)      # Cyan for X
-COLOR_O = QColor(167, 139, 250)      # Purple for O
+COLOR_X = QColor(110, 231, 255)  # Cyan for X
+COLOR_O = QColor(167, 139, 250)  # Purple for O
 COLOR_OVERLAY_BG = QColor(14, 17, 26, 230)
 COLOR_WIN_LINE = QColor(110, 231, 255, 180)
 
@@ -109,7 +121,7 @@ class ConfettiParticle:
 
 class BoardWidget(QWidget):
     """Game board with turn indicator and overlay support."""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(400, 400)
@@ -198,17 +210,20 @@ class BoardWidget(QWidget):
     def mousePressEvent(self, event) -> None:
         if event.button() != Qt.LeftButton:
             return
-        
+
         # Check if clicking overlay button
-        if (self._overlay_visible and self._overlay_button_callback 
-            and self._overlay_button_rect is not None):
+        if (
+            self._overlay_visible
+            and self._overlay_button_callback
+            and self._overlay_button_rect is not None
+        ):
             pos = event.position()
             if self._overlay_button_rect.contains(pos):
                 callback = self._overlay_button_callback
                 self._hide_overlay_immediate()
                 callback()
                 return
-        
+
         if not self.enabled_input:
             return
         idx = self.cell_at_pos(event.position().x(), event.position().y())
@@ -264,22 +279,22 @@ class BoardWidget(QWidget):
         self._overlay_visible = True
         self._overlay_opacity = 0.0
         self._overlay_button_callback = None  # No button
-        
+
         # Fade in animation
         anim = QVariantAnimation(self)
         anim.setDuration(200)
         anim.setStartValue(0.0)
         anim.setEndValue(1.0)
         anim.setEasingCurve(QEasingCurve.OutCubic)
-        
+
         def on_fade_in(v):
             self._overlay_opacity = float(v)
             self.update()
-        
+
         anim.valueChanged.connect(on_fade_in)
         anim.start()
         self._overlay_fade_anim = anim
-        
+
         # Auto-hide after duration
         if self._overlay_timer:
             self._overlay_timer.stop()
@@ -288,31 +303,32 @@ class BoardWidget(QWidget):
         self._overlay_timer.timeout.connect(self._fade_out_overlay)
         self._overlay_timer.start(duration_ms)
 
-    def show_overlay_with_button(self, title: str, subtitle: str = "", 
-                                  on_button_click: Optional[Callable] = None) -> None:
+    def show_overlay_with_button(
+        self, title: str, subtitle: str = "", on_button_click: Optional[Callable] = None
+    ) -> None:
         """Show overlay with 'Play Again' button - stays until button clicked."""
         self._overlay_title = title
         self._overlay_subtitle = subtitle
         self._overlay_visible = True
         self._overlay_opacity = 0.0
         self._overlay_button_callback = on_button_click
-        
+
         # Stop any existing timer
         if self._overlay_timer:
             self._overlay_timer.stop()
             self._overlay_timer = None
-        
+
         # Fade in animation
         anim = QVariantAnimation(self)
         anim.setDuration(200)
         anim.setStartValue(0.0)
         anim.setEndValue(1.0)
         anim.setEasingCurve(QEasingCurve.OutCubic)
-        
+
         def on_fade_in(v):
             self._overlay_opacity = float(v)
             self.update()
-        
+
         anim.valueChanged.connect(on_fade_in)
         anim.start()
         self._overlay_fade_anim = anim
@@ -324,13 +340,13 @@ class BoardWidget(QWidget):
         anim.setStartValue(self._overlay_opacity)
         anim.setEndValue(0.0)
         anim.setEasingCurve(QEasingCurve.InCubic)
-        
+
         def on_fade_out(v):
             self._overlay_opacity = float(v)
             if float(v) <= 0.01:
                 self._overlay_visible = False
             self.update()
-        
+
         anim.valueChanged.connect(on_fade_out)
         anim.start()
         self._overlay_fade_anim = anim
@@ -361,7 +377,9 @@ class BoardWidget(QWidget):
         # Board background
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(18, 22, 32, 140))
-        painter.drawRoundedRect(QRectF(left - 10, top - 10, board_size + 20, board_size + 20), 16, 16)
+        painter.drawRoundedRect(
+            QRectF(left - 10, top - 10, board_size + 20, board_size + 20), 16, 16
+        )
 
         # Grid
         grid_pen = QPen(QColor(255, 255, 255, 35), 2)
@@ -394,7 +412,7 @@ class BoardWidget(QWidget):
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
             pts = []
-            for (rr, cc) in self.winning_coords:
+            for rr, cc in self.winning_coords:
                 pts.append(QRectF(left + cc * cell, top + rr * cell, cell, cell).center())
             if len(pts) >= 2:
                 painter.drawLine(pts[0], pts[-1])
@@ -417,31 +435,33 @@ class BoardWidget(QWidget):
 
         painter.end()
 
-    def _draw_turn_background(self, painter: QPainter, left: float, top: float, board_size: float) -> None:
+    def _draw_turn_background(
+        self, painter: QPainter, left: float, top: float, board_size: float
+    ) -> None:
         """Draw turn indicator with large transparent symbol in background."""
         if self.winning_coords is not None:
             return  # Don't show turn indicator when game is over
-        
+
         current_player = self.state.to_move
-        is_human_turn = (current_player == self.human)
-        
+        is_human_turn = current_player == self.human
+
         # Pulsing opacity - STRONGER visibility
         pulse = 0.18 + 0.08 * math.sin(self._turn_pulse)
-        
+
         # Color based on whose turn
         if current_player == 1:
             color = QColor(COLOR_X.red(), COLOR_X.green(), COLOR_X.blue(), int(255 * pulse))
         else:
             color = QColor(COLOR_O.red(), COLOR_O.green(), COLOR_O.blue(), int(255 * pulse))
-        
+
         painter.save()
-        
+
         # Draw large symbol in center
         symbol_size = board_size * 0.6
         cx = left + board_size / 2
         cy = top + board_size / 2
-        rect = QRectF(cx - symbol_size/2, cy - symbol_size/2, symbol_size, symbol_size)
-        
+        rect = QRectF(cx - symbol_size / 2, cy - symbol_size / 2, symbol_size, symbol_size)
+
         if current_player == 1:
             # Draw large X
             pad = symbol_size * 0.15
@@ -450,11 +470,11 @@ class BoardWidget(QWidget):
             painter.setPen(pen)
             painter.drawLine(
                 QPointF(rect.left() + pad, rect.top() + pad),
-                QPointF(rect.right() - pad, rect.bottom() - pad)
+                QPointF(rect.right() - pad, rect.bottom() - pad),
             )
             painter.drawLine(
                 QPointF(rect.left() + pad, rect.bottom() - pad),
-                QPointF(rect.right() - pad, rect.top() + pad)
+                QPointF(rect.right() - pad, rect.top() + pad),
             )
         else:
             # Draw large O
@@ -463,43 +483,43 @@ class BoardWidget(QWidget):
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
             painter.drawEllipse(rect.adjusted(pad, pad, -pad, -pad))
-        
+
         painter.restore()
 
     def _draw_overlay(self, painter: QPainter, left: float, top: float, board_size: float) -> None:
         """Draw overlay notification over the board."""
         painter.save()
         painter.setOpacity(self._overlay_opacity)
-        
+
         # Semi-transparent background
         overlay_rect = QRectF(left - 10, top - 10, board_size + 20, board_size + 20)
         painter.setPen(Qt.NoPen)
         painter.setBrush(COLOR_OVERLAY_BG)
         painter.drawRoundedRect(overlay_rect, 16, 16)
-        
+
         # Border glow
         border_pen = QPen(QColor(110, 231, 255, 100), 2)
         painter.setPen(border_pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(overlay_rect.adjusted(2, 2, -2, -2), 14, 14)
-        
+
         # Title
         title_font = QFont("Segoe UI", 22, QFont.Bold)
         painter.setFont(title_font)
         painter.setPen(QColor(255, 255, 255))
-        
+
         title_rect = QRectF(left, top + board_size * 0.30, board_size, 40)
         painter.drawText(title_rect, Qt.AlignCenter, self._overlay_title)
-        
+
         # Subtitle
         if self._overlay_subtitle:
             sub_font = QFont("Segoe UI", 13)
             painter.setFont(sub_font)
             painter.setPen(QColor(255, 255, 255, 180))
-            
+
             sub_rect = QRectF(left + 20, top + board_size * 0.42, board_size - 40, 60)
             painter.drawText(sub_rect, Qt.AlignCenter | Qt.TextWordWrap, self._overlay_subtitle)
-        
+
         # Draw "Play Again" button if callback is set
         if self._overlay_button_callback is not None:
             btn_w, btn_h = 160, 44
@@ -507,16 +527,16 @@ class BoardWidget(QWidget):
             btn_y = top + board_size * 0.65
             btn_rect = QRectF(btn_x, btn_y, btn_w, btn_h)
             self._overlay_button_rect = btn_rect
-            
+
             # Button gradient background
             gradient = QLinearGradient(btn_rect.topLeft(), btn_rect.bottomRight())
             gradient.setColorAt(0, QColor(110, 231, 255, 220))
             gradient.setColorAt(1, QColor(167, 139, 250, 220))
-            
+
             painter.setPen(Qt.NoPen)
             painter.setBrush(gradient)
             painter.drawRoundedRect(btn_rect, 10, 10)
-            
+
             # Button text
             btn_font = QFont("Segoe UI", 14, QFont.Bold)
             painter.setFont(btn_font)
@@ -524,7 +544,7 @@ class BoardWidget(QWidget):
             painter.drawText(btn_rect, Qt.AlignCenter, "🔄 Hrát znovu")
         else:
             self._overlay_button_rect = None
-        
+
         painter.restore()
 
     def _board_geometry(self) -> Tuple[float, float, float, float]:
@@ -608,11 +628,11 @@ class BoardWidget(QWidget):
         painter.setPen(pen)
         painter.drawLine(
             QPointF(rect.left() + pad, rect.top() + pad),
-            QPointF(rect.right() - pad, rect.bottom() - pad)
+            QPointF(rect.right() - pad, rect.bottom() - pad),
         )
         painter.drawLine(
             QPointF(rect.left() + pad, rect.bottom() - pad),
-            QPointF(rect.right() - pad, rect.top() + pad)
+            QPointF(rect.right() - pad, rect.top() + pad),
         )
 
     def _draw_o(self, painter: QPainter, rect: QRectF) -> None:
@@ -622,7 +642,9 @@ class BoardWidget(QWidget):
         painter.setPen(pen)
         painter.drawEllipse(rect.adjusted(pad, pad, -pad, -pad))
 
-    def _paint_mark_with_trail(self, painter: QPainter, rect: QRectF, value: int, prog: float) -> None:
+    def _paint_mark_with_trail(
+        self, painter: QPainter, rect: QRectF, value: int, prog: float
+    ) -> None:
         base_opacity = min(1.0, 0.2 + 0.8 * prog)
         bounce_base = 12 + max(0, self.n - 3) * 2
 
@@ -655,7 +677,7 @@ class BoardWidget(QWidget):
 
 class PiskvorkyWidget(QWidget):
     """Main game widget with all controls and game logic."""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("PiskvorkyRoot")
@@ -686,7 +708,7 @@ class PiskvorkyWidget(QWidget):
         lbl_size = QLabel("⬜ Pole:")
         lbl_size.setStyleSheet("color: rgba(255,255,255,0.8); font-size: 12px;")
         row.addWidget(lbl_size)
-        
+
         self._size_buttons = {}
         size_group = QHBoxLayout()
         size_group.setSpacing(4)
@@ -700,18 +722,22 @@ class PiskvorkyWidget(QWidget):
             self._size_buttons[size_key] = btn
             size_group.addWidget(btn)
         row.addLayout(size_group)
-        
+
         row.addSpacing(16)
-        
+
         # Difficulty buttons
         lbl_diff = QLabel("🤖 Bot:")
         lbl_diff.setStyleSheet("color: rgba(255,255,255,0.8); font-size: 12px;")
         row.addWidget(lbl_diff)
-        
+
         self._diff_buttons = {}
         diff_group = QHBoxLayout()
         diff_group.setSpacing(4)
-        for diff_key, diff_label, emoji in [("easy", "Lehká", "😊"), ("medium", "Střední", "🤔"), ("hard", "Těžká", "🔥")]:
+        for diff_key, diff_label, emoji in [
+            ("easy", "Lehká", "😊"),
+            ("medium", "Střední", "🤔"),
+            ("hard", "Těžká", "🔥"),
+        ]:
             btn = QPushButton(f"{emoji} {diff_label}")
             btn.setObjectName(f"DiffBtn_{diff_key}")
             btn.setCheckable(True)
@@ -721,7 +747,7 @@ class PiskvorkyWidget(QWidget):
             self._diff_buttons[diff_key] = btn
             diff_group.addWidget(btn)
         row.addLayout(diff_group)
-        
+
         row.addStretch(1)
 
         self.btn_new = QPushButton("🎲  Nová hra")
@@ -759,7 +785,9 @@ class PiskvorkyWidget(QWidget):
 
         # Status label - shows turn info
         self.lbl_status = QLabel("")
-        self.lbl_status.setStyleSheet("font-size: 15px; font-weight: 500; color: rgba(255,255,255,0.92); margin: 4px 0;")
+        self.lbl_status.setStyleSheet(
+            "font-size: 15px; font-weight: 500; color: rgba(255,255,255,0.92); margin: 4px 0;"
+        )
 
         # Board
         self.board = BoardWidget()
@@ -787,6 +815,9 @@ class PiskvorkyWidget(QWidget):
         # AI background task
         self._ai_task: Optional[WorkerHandle] = None
         self._ai_task_id = 0
+        self._ai_warmup_task: Optional[WorkerHandle] = None
+        self._ai_warmed_up = False
+        self._ai_waiting_for_warmup = False
 
         # Swap2 state (for 13×13)
         self.swap_enabled = False
@@ -797,6 +828,9 @@ class PiskvorkyWidget(QWidget):
         # Initialize button states
         self._update_size_buttons("3")
         self._update_diff_buttons("easy")
+
+        # Warm up AI kernels in background so first bot turn does not freeze UI.
+        QTimer.singleShot(0, self._start_ai_warmup)
 
         # Start first game after UI is ready
         QTimer.singleShot(0, self.new_game)
@@ -873,22 +907,24 @@ class PiskvorkyWidget(QWidget):
         r_bot = BOT_RATING[self.difficulty]
         pwin = expected_score(r_player, r_bot)
         points = rec.w * 3 + rec.d * 1
-        self.lbl_score.setText(f"🏆 {r_player:.0f} Elo · {rec.w}V / {rec.d}R / {rec.l}P · {points} bodů")
-        self.lbl_chance.setText(f"⚖️ Šance: {pwin*100:.0f}%")
+        self.lbl_score.setText(
+            f"🏆 {r_player:.0f} Elo · {rec.w}V / {rec.d}R / {rec.l}P · {points} bodů"
+        )
+        self.lbl_chance.setText(f"⚖️ Šance: {pwin * 100:.0f}%")
         return pwin
 
     def new_game(self) -> None:
         """Start a new game."""
         # Stop any pending AI
         self._stop_ai_thread()
-        
+
         # n and difficulty are already set by button clicks
         # Just sync the button states
         self._update_size_buttons(str(self.n))
         self._update_diff_buttons(self.difficulty)
-        
+
         # Swap2 only for 13×13
-        self.swap_enabled = (self.n == 13)
+        self.swap_enabled = self.n == 13
         self.swap_phase = "none"
         self.board.on_free_place = None
         self._ai_thinking = False
@@ -908,7 +944,7 @@ class PiskvorkyWidget(QWidget):
             self.human = 1
             self.bot = -1
             starter = "Hráč"
-        
+
         self.board.reset(self.n, to_move=1, human=self.human, bot=self.bot)
         self.game_over = False
 
@@ -922,16 +958,14 @@ class PiskvorkyWidget(QWidget):
         """Show game start information via overlay."""
         human_mark = "X" if self.human == 1 else "O"
         bot_mark = "X" if self.bot == 1 else "O"
-        
+
         self.lbl_roles.setText(f"🎮 Ty: {human_mark} · Bot: {bot_mark}")
         self._refresh_score_labels()
         self._update_turn_status()
-        
+
         # Show overlay notification
         self.board.show_overlay(
-            "🎯 Nová hra",
-            f"{starter} začíná jako X\nTy hraješ {human_mark}, bot {bot_mark}",
-            2000
+            "🎯 Nová hra", f"{starter} začíná jako X\nTy hraješ {human_mark}, bot {bot_mark}", 2000
         )
 
     def _update_turn_status(self) -> None:
@@ -940,7 +974,7 @@ class PiskvorkyWidget(QWidget):
             return
         if self.swap_phase not in ("none", "playing"):
             return
-            
+
         turn_mark = "X" if self.board.state.to_move == 1 else "O"
         is_human = self.board.state.to_move == self.human
         who = "Ty" if is_human else "Bot"
@@ -971,8 +1005,14 @@ class PiskvorkyWidget(QWidget):
         if self._ai_thinking:
             return
 
-        # Pre-compile Numba functions (first call only)
-        warmup()
+        # Warmup may still be compiling Numba kernels in a worker thread.
+        if not self._ai_warmed_up:
+            self._ai_waiting_for_warmup = True
+            self._ai_thinking = True
+            self._update_turn_status()
+            self.board.disable()
+            self._start_ai_warmup()
+            return
 
         self._ai_thinking = True
         self._update_turn_status()
@@ -1027,7 +1067,7 @@ class PiskvorkyWidget(QWidget):
         """Handle AI computation result."""
         self._ai_thinking = False
         self._ai_task = None
-        
+
         if self.game_over:
             return
         if self.board.state.to_move != self.bot:
@@ -1040,6 +1080,7 @@ class PiskvorkyWidget(QWidget):
     def _stop_ai_thread(self) -> None:
         """Stop AI background task if running."""
         self._ai_thinking = False
+        self._ai_waiting_for_warmup = False
         self._ai_task_id += 1
 
         if self._ai_task is not None:
@@ -1049,10 +1090,41 @@ class PiskvorkyWidget(QWidget):
         self.board.enable()
         self._update_turn_status()
 
+    def _start_ai_warmup(self) -> None:
+        """Run AI warmup in background once per widget lifetime."""
+        if self._ai_warmed_up or self._ai_warmup_task is not None:
+            return
+
+        def _done(_: object) -> None:
+            self._ai_warmed_up = True
+            self._ai_warmup_task = None
+            if not self._ai_waiting_for_warmup:
+                return
+            self._ai_waiting_for_warmup = False
+            self._ai_thinking = False
+            self._update_turn_status()
+            QTimer.singleShot(0, self._bot_move_async)
+
+        def _error(exc: Exception) -> None:
+            self._ai_warmed_up = True
+            self._ai_warmup_task = None
+            self._ai_waiting_for_warmup = False
+            self._ai_thinking = False
+            self.board.enable()
+            self._update_turn_status()
+            print(f"AI warmup worker failed: {exc}")
+
+        self._ai_warmup_task = run_in_worker(
+            fn=warmup,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
+
     def _post_move(self, last_bot_eval: Optional[int] = None) -> None:
         """Handle post-move logic: check winner, switch turns."""
         winner, coords, draw = check_winner(self.board.state)
-        
+
         if winner is not None:
             self.game_over = True
             self.board.disable()
@@ -1063,14 +1135,18 @@ class PiskvorkyWidget(QWidget):
                 self._set_status("✅ Vyhrál jsi!")
                 delta = self._calc_rating_delta("W")
                 sign = "+" if delta >= 0 else ""
-                self.board.show_overlay_with_button("🏆 Vítězství!", f"Skvělá práce!\nRating: {sign}{delta:.0f}", self.new_game)
+                self.board.show_overlay_with_button(
+                    "🏆 Vítězství!", f"Skvělá práce!\nRating: {sign}{delta:.0f}", self.new_game
+                )
                 self.board.celebrate_win()  # Konfety jen při výhře!
                 self._finish_game("W")
             else:
                 self._set_status("❌ Bot vyhrál.")
                 delta = self._calc_rating_delta("L")
                 sign = "+" if delta >= 0 else ""
-                self.board.show_overlay_with_button("💥 Prohra", f"Zkus jinou strategii\nRating: {sign}{delta:.0f}", self.new_game)
+                self.board.show_overlay_with_button(
+                    "💥 Prohra", f"Zkus jinou strategii\nRating: {sign}{delta:.0f}", self.new_game
+                )
                 # NO confetti on loss!
                 self._finish_game("L")
             return
@@ -1081,7 +1157,9 @@ class PiskvorkyWidget(QWidget):
             self._set_status("🤝 Remíza.")
             delta = self._calc_rating_delta("D")
             sign = "+" if delta >= 0 else ""
-            self.board.show_overlay_with_button("⚖️ Remíza", f"Vyrovnaná partie!\nRating: {sign}{delta:.0f}", self.new_game)
+            self.board.show_overlay_with_button(
+                "⚖️ Remíza", f"Vyrovnaná partie!\nRating: {sign}{delta:.0f}", self.new_game
+            )
             # NO confetti on draw
             self._finish_game("D")
             return
@@ -1089,7 +1167,7 @@ class PiskvorkyWidget(QWidget):
         # Continue game
         self._update_turn_status()
         self._update_position_chance(last_bot_eval)
-        
+
         # Enable input for human turn
         if self.board.state.to_move == self.human:
             self.board.enable()
@@ -1105,16 +1183,16 @@ class PiskvorkyWidget(QWidget):
             return
 
         st = self.board.state
-        
+
         if last_bot_eval is not None:
             p_bot = win_probability_from_score(last_bot_eval, self.n)
             p_h = 1.0 - p_bot
         else:
             score = evaluate(st, self.human)
             p_h = win_probability_from_score(score, self.n)
-        
+
         base = self.lbl_chance.text().split(" · ")[0]
-        self.lbl_chance.setText(f"{base} · Pozice: {p_h*100:.0f}%")
+        self.lbl_chance.setText(f"{base} · Pozice: {p_h * 100:.0f}%")
 
     def _calc_rating_delta(self, result: str) -> float:
         key = self.config_key()
@@ -1139,19 +1217,24 @@ class PiskvorkyWidget(QWidget):
         set_record(self.stats, key, rec)
         set_rating(self.stats, key, new_r)
 
-        add_history(self.stats, {
-            "ts": int(time.time()),
-            "n": self.n,
-            "difficulty": self.difficulty,
-            "result": result,
-            "delta": round(delta, 2),
-            "new_rating": round(new_r, 2),
-        })
+        add_history(
+            self.stats,
+            {
+                "ts": int(time.time()),
+                "n": self.n,
+                "difficulty": self.difficulty,
+                "result": result,
+                "delta": round(delta, 2),
+                "new_rating": round(new_r, 2),
+            },
+        )
 
         save_stats(self.stats_path, self.stats)
 
         points = rec.w * 3 + rec.d * 1
-        self.lbl_score.setText(f"🏆 {new_r:.0f} Elo · {rec.w}V / {rec.d}R / {rec.l}P · {points} bodů")
+        self.lbl_score.setText(
+            f"🏆 {new_r:.0f} Elo · {rec.w}V / {rec.d}R / {rec.l}P · {points} bodů"
+        )
 
     # ==================== SWAP2 IMPLEMENTATION ====================
 
@@ -1175,17 +1258,11 @@ class PiskvorkyWidget(QWidget):
             self.board.enable()
             self.board.on_free_place = self._swap_place_stone
             self.board.show_overlay(
-                "🔄 Swap2: Tvůj návrh",
-                "Umísti 3 kameny: 2× X a 1× O\nKlikni na pole",
-                3000
+                "🔄 Swap2: Tvůj návrh", "Umísti 3 kameny: 2× X a 1× O\nKlikni na pole", 3000
             )
         else:
             self.board.disable()
-            self.board.show_overlay(
-                "🔄 Swap2: Bot navrhuje",
-                "Bot umisťuje 3 kameny...",
-                1500
-            )
+            self.board.show_overlay("🔄 Swap2: Bot navrhuje", "Bot umisťuje 3 kameny...", 1500)
             QTimer.singleShot(800, self._bot_swap_place_stones)
 
     def _place_mark_direct(self, idx: int, mark: int) -> bool:
@@ -1217,7 +1294,9 @@ class PiskvorkyWidget(QWidget):
                 QTimer.singleShot(400, self._swap_p2_choice)
             else:
                 which = "X" if self.swap_counts[1] > 0 else "O"
-                self._set_status(f"🔄 Umísti {which} (zbývá: X={self.swap_counts[1]}, O={self.swap_counts[-1]})")
+                self._set_status(
+                    f"🔄 Umísti {which} (zbývá: X={self.swap_counts[1]}, O={self.swap_counts[-1]})"
+                )
 
         elif self.swap_phase == "p2_add":
             # P2 adding 2 stones
@@ -1247,9 +1326,9 @@ class PiskvorkyWidget(QWidget):
                     r, c = center + dr, center + dc
                     if 0 <= r < self.n and 0 <= c < self.n:
                         positions.append(r * self.n + c)
-            
+
             random.shuffle(positions)
-            
+
             placed = {1: 0, -1: 0}
             for pos in positions:
                 if self.board.state.board[pos] != 0:
@@ -1262,10 +1341,10 @@ class PiskvorkyWidget(QWidget):
                     self._place_mark_direct(pos, -1)
                     self.board.animate_mark(pos)
                     placed[-1] += 1
-                
+
                 if placed[1] == 2 and placed[-1] == 1:
                     break
-            
+
             self.swap_phase = "p2_choice"
             QTimer.singleShot(600, self._swap_p2_choice)
 
@@ -1279,23 +1358,23 @@ class PiskvorkyWidget(QWidget):
                     if 0 <= r < self.n and 0 <= c < self.n:
                         if self.board.state.board[r * self.n + c] == 0:
                             positions.append(r * self.n + c)
-            
+
             random.shuffle(positions)
-            
+
             placed = {1: 0, -1: 0}
             for pos in positions[:2]:
                 mark = 1 if placed[1] < 1 else -1
                 self._place_mark_direct(pos, mark)
                 self.board.animate_mark(pos)
                 placed[mark] += 1
-            
+
             self.swap_phase = "p1_choose_color"
             QTimer.singleShot(600, self._swap_p1_choose_color)
 
     def _swap_p2_choice(self) -> None:
         """P2 chooses: take X, take O, or add 2 stones."""
         p2_is_human = not self.swap_proposer_is_human
-        
+
         if p2_is_human:
             # Show choice buttons
             self._show_swap_choice_dialog()
@@ -1306,13 +1385,9 @@ class PiskvorkyWidget(QWidget):
 
     def _show_swap_choice_dialog(self) -> None:
         """Show Swap2 choice dialog for human P2."""
-        self.board.show_overlay(
-            "🔄 Vyber si",
-            "Klikni na tlačítko níže",
-            10000
-        )
+        self.board.show_overlay("🔄 Vyber si", "Klikni na tlačítko níže", 1500)
         self._set_status("🔄 Vyber: X, O, nebo přidej kameny")
-        
+
         # Add choice buttons
         self._swap_choice_frame = QFrame(self)
         self._swap_choice_frame.setStyleSheet("""
@@ -1325,11 +1400,11 @@ class PiskvorkyWidget(QWidget):
         choice_lay = QHBoxLayout(self._swap_choice_frame)
         choice_lay.setSpacing(10)
         choice_lay.setContentsMargins(12, 10, 12, 10)
-        
+
         btn_x = QPushButton("❌ Hraju X")
         btn_o = QPushButton("⭕ Hraju O")
         btn_add = QPushButton("➕ Přidám 2")
-        
+
         for btn in (btn_x, btn_o, btn_add):
             btn.setStyleSheet("""
                 QPushButton {
@@ -1344,31 +1419,31 @@ class PiskvorkyWidget(QWidget):
                     background: rgba(110,231,255,0.3);
                 }
             """)
-        
+
         btn_x.clicked.connect(lambda: self._swap_human_choice("x"))
         btn_o.clicked.connect(lambda: self._swap_human_choice("o"))
         btn_add.clicked.connect(lambda: self._swap_human_choice("add"))
-        
+
         choice_lay.addWidget(btn_x)
         choice_lay.addWidget(btn_o)
         choice_lay.addWidget(btn_add)
-        
+
         # Position the frame
         self._swap_choice_frame.adjustSize()
         self._swap_choice_frame.move(
             (self.width() - self._swap_choice_frame.width()) // 2,
-            self.height() - self._swap_choice_frame.height() - 60
+            self.height() - self._swap_choice_frame.height() - 60,
         )
         self._swap_choice_frame.show()
 
     def _swap_human_choice(self, choice: str) -> None:
         """Handle human P2's Swap2 choice."""
-        if hasattr(self, '_swap_choice_frame'):
+        if hasattr(self, "_swap_choice_frame"):
             self._swap_choice_frame.hide()
             self._swap_choice_frame.deleteLater()
-        
+
         self.board._hide_overlay_immediate()
-        
+
         if choice == "x":
             self._finalize_swap(human_mark=1)
         elif choice == "o":
@@ -1387,7 +1462,7 @@ class PiskvorkyWidget(QWidget):
         # Simple heuristic: evaluate position
         score_x = evaluate(self.board.state, 1)
         score_o = evaluate(self.board.state, -1)
-        
+
         if self.difficulty == "easy":
             choice = random.choice(["x", "o", "add"])
         elif self.difficulty == "medium":
@@ -1400,7 +1475,7 @@ class PiskvorkyWidget(QWidget):
                 choice = "x" if score_x > score_o else "o"
             else:
                 choice = "add"
-        
+
         if choice == "x":
             self.board.show_overlay("🔄 Bot vybral X", "", 1500)
             QTimer.singleShot(800, lambda: self._finalize_swap(human_mark=-1))
@@ -1416,19 +1491,19 @@ class PiskvorkyWidget(QWidget):
     def _swap_p1_choose_color(self) -> None:
         """P1 chooses color after P2 added stones."""
         p1_is_human = self.swap_proposer_is_human
-        
+
         if p1_is_human:
             self._show_swap_color_dialog()
         else:
             # Bot chooses
             score_x = evaluate(self.board.state, 1)
             score_o = evaluate(self.board.state, -1)
-            
+
             if self.difficulty == "hard":
                 bot_mark = 1 if score_x >= score_o else -1
             else:
                 bot_mark = random.choice([1, -1])
-            
+
             human_mark = -bot_mark
             self.board.show_overlay(f"🔄 Bot vybral {'X' if bot_mark == 1 else 'O'}", "", 1500)
             QTimer.singleShot(800, lambda: self._finalize_swap(human_mark=human_mark))
@@ -1437,7 +1512,7 @@ class PiskvorkyWidget(QWidget):
         """Show color choice for human P1."""
         self.board.show_overlay("🔄 Vyber barvu", "Soupeř přidal kameny", 10000)
         self._set_status("🔄 Vyber si barvu")
-        
+
         self._swap_choice_frame = QFrame(self)
         self._swap_choice_frame.setStyleSheet("""
             QFrame {
@@ -1449,10 +1524,10 @@ class PiskvorkyWidget(QWidget):
         choice_lay = QHBoxLayout(self._swap_choice_frame)
         choice_lay.setSpacing(10)
         choice_lay.setContentsMargins(12, 10, 12, 10)
-        
+
         btn_x = QPushButton("❌ Hraju X")
         btn_o = QPushButton("⭕ Hraju O")
-        
+
         for btn in (btn_x, btn_o):
             btn.setStyleSheet("""
                 QPushButton {
@@ -1467,26 +1542,26 @@ class PiskvorkyWidget(QWidget):
                     background: rgba(110,231,255,0.3);
                 }
             """)
-        
+
         btn_x.clicked.connect(lambda: self._swap_color_chosen(1))
         btn_o.clicked.connect(lambda: self._swap_color_chosen(-1))
-        
+
         choice_lay.addWidget(btn_x)
         choice_lay.addWidget(btn_o)
-        
+
         self._swap_choice_frame.adjustSize()
         self._swap_choice_frame.move(
             (self.width() - self._swap_choice_frame.width()) // 2,
-            self.height() - self._swap_choice_frame.height() - 60
+            self.height() - self._swap_choice_frame.height() - 60,
         )
         self._swap_choice_frame.show()
 
     def _swap_color_chosen(self, human_mark: int) -> None:
         """Handle human P1's color choice."""
-        if hasattr(self, '_swap_choice_frame'):
+        if hasattr(self, "_swap_choice_frame"):
             self._swap_choice_frame.hide()
             self._swap_choice_frame.deleteLater()
-        
+
         self.board._hide_overlay_immediate()
         self._finalize_swap(human_mark=human_mark)
 
@@ -1497,32 +1572,30 @@ class PiskvorkyWidget(QWidget):
         self.bot = -human_mark
         self.board.human = self.human
         self.board.bot = self.bot
-        
+
         # Determine who moves first
         # Count pieces to determine whose turn it should be
         x_count = sum(1 for v in self.board.state.board if v == 1)
         o_count = sum(1 for v in self.board.state.board if v == -1)
-        
+
         # X moves first, so if X has more pieces, it's O's turn
         if x_count > o_count:
             self.board.state.to_move = -1  # O's turn
         else:
-            self.board.state.to_move = 1   # X's turn
-        
+            self.board.state.to_move = 1  # X's turn
+
         human_mark_str = "X" if self.human == 1 else "O"
         bot_mark_str = "X" if self.bot == 1 else "O"
-        
+
         self.lbl_roles.setText(f"🎮 Ty: {human_mark_str} · Bot: {bot_mark_str} [Swap2]")
         self._refresh_score_labels()
         self._update_turn_status()
-        
+
         starter = "Ty" if self.board.state.to_move == self.human else "Bot"
         self.board.show_overlay(
-            "🎯 Hra začíná",
-            f"{starter} na tahu\nTy: {human_mark_str}, Bot: {bot_mark_str}",
-            2000
+            "🎯 Hra začíná", f"{starter} na tahu\nTy: {human_mark_str}, Bot: {bot_mark_str}", 2000
         )
-        
+
         # Enable/disable input based on whose turn
         if self.board.state.to_move == self.human:
             self.board.enable()
@@ -1535,8 +1608,8 @@ class PiskvorkyWidget(QWidget):
     def resizeEvent(self, event) -> None:
         """Handle resize to reposition swap choice frame."""
         super().resizeEvent(event)
-        if hasattr(self, '_swap_choice_frame') and self._swap_choice_frame.isVisible():
+        if hasattr(self, "_swap_choice_frame") and self._swap_choice_frame.isVisible():
             self._swap_choice_frame.move(
                 (self.width() - self._swap_choice_frame.width()) // 2,
-                self.height() - self._swap_choice_frame.height() - 60
+                self.height() - self._swap_choice_frame.height() - 60,
             )

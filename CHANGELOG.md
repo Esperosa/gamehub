@@ -7,7 +7,34 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-- Ongoing gameplay/UI improvements in working tree (not yet released).
+- No unreleased changes yet.
+
+## [0.6.0] - 2026-02-08
+
+### Added
+
+- GPU/CPU background runtime split modules:
+  - `hub/widgets/background_gpu.py`
+  - `hub/widgets/background_fallback.py`
+  - `hub/animations/background_effects.py`
+  - `hub/diagnostics/gpu_probe_runner.py`
+
+### Changed
+
+- Major gameplay and UI refinements across games:
+  - `2048`
+  - `Mastermind`
+  - `Piškvorky`
+  - `Slitherlink`
+  - `Sudoku`
+- Hub card/background rendering and dialog styling consistency.
+- Print dialog controls updated for reliable `+ / -` quantity stepping.
+- Top menu `Quit` action kept in code but disabled by default (commented).
+
+### Fixed
+
+- Dialog styling issues on some systems where spinbox arrows rendered as empty or white blocks.
+- Printing workflow now consistently uses Qt-styled dialogs for visual parity.
 
 ## [0.5.0] - 2026-02-07
 

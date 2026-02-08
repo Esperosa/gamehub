@@ -35,14 +35,14 @@ class GameCard(QFrame):
         self.setStyleSheet("""
             QFrame#GameCard {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(30,35,50,0.9), stop:1 rgba(20,24,36,0.95));
-                border: 1px solid rgba(110,231,255,0.2);
+                    stop:0 rgba(30,35,50,0.56), stop:1 rgba(20,24,36,0.62));
+                border: 1px solid rgba(110,231,255,0.26);
                 border-radius: 16px;
             }
             QFrame#GameCard:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(45,52,75,0.95), stop:1 rgba(30,36,55,0.98));
-                border: 2px solid rgba(110,231,255,0.5);
+                    stop:0 rgba(45,52,75,0.72), stop:1 rgba(30,36,55,0.78));
+                border: 2px solid rgba(110,231,255,0.62);
             }
         """)
 
@@ -89,19 +89,19 @@ class GameCard(QFrame):
         """Update font sizes based on card dimensions."""
         w = self.width()
         h = self.height()
-        
+
         # Use smaller dimension for proportional scaling
         size = min(w, h)
-        
+
         # Graphic: ~35% of card size
         graphic_font_size = max(16, int(size * 0.30))
-        
+
         # Title: ~10% of card size
         title_font_size = max(9, int(size * 0.09))
-        
+
         # Play hint: ~7% of card size
         hint_font_size = max(8, int(size * 0.065))
-        
+
         # Update graphic label
         if self._graphic_text:
             lines = self._graphic_text.splitlines() or [self._graphic_text]
@@ -138,7 +138,7 @@ class GameCard(QFrame):
                 font-weight: 700;
                 color: rgba(110,231,255,0.9);
             """)
-        
+
         # Update title
         self._title_label.setStyleSheet(f"""
             font-size: {title_font_size}px;
@@ -146,7 +146,7 @@ class GameCard(QFrame):
             color: rgba(255,255,255,0.95);
             background: transparent;
         """)
-        
+
         # Update play hint
         self._play_hint.setStyleSheet(f"""
             font-size: {hint_font_size}px;
