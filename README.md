@@ -96,6 +96,7 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - `CHANGELOG.md` - verze a změny
 - `docs/sudoku_generation_performance.md` - srovnání variant generování Sudoku 16x16 hard a výsledky benchmarku
 - `docs/print_export_samples.md` - jak vznikají print dialog screenshoty a PDF sample exporty
+- `benchmarks/README.md` - benchmark artefakty a jejich kontext
 
 ## Co v aplikaci je
 
