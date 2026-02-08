@@ -166,6 +166,12 @@ class SudokuBoard(QWidget):
         self.hint_cell: Optional[Tuple[int, int]] = None
         self.hint_timer: Optional[QTimer] = None
 
+        # Loading state
+        self._loading = False
+        self._loading_angle = 0.0
+        self._loading_timer: Optional[QTimer] = None
+        self._loading_size = 9
+
         # Confetti
         self._confetti: List[ConfettiParticle] = []
         self._confetti_timer: Optional[QTimer] = None
@@ -186,7 +192,40 @@ class SudokuBoard(QWidget):
         self.on_complete = None
         self.on_state_changed = None
 
+    def set_loading(self, loading: bool, preview_size: int = 9) -> None:
+        """Show or hide board-level loading animation."""
+        self._loading = loading
+        self._loading_size = max(4, preview_size)
+
+        if loading:
+            self.state = None
+            self.selected_cell = None
+            self.hint_cell = None
+            self._cell_anims.clear()
+            self._stop_confetti()
+            self._hide_overlay()
+            self._loading_angle = 0.0
+            if not self._loading_timer:
+                self._loading_timer = QTimer(self)
+                self._loading_timer.setInterval(16)
+                self._loading_timer.timeout.connect(self._tick_loading)
+            self._loading_timer.start()
+        elif self._loading_timer:
+            self._loading_timer.stop()
+
+        self.update()
+
+    def _tick_loading(self) -> None:
+        self._loading_angle += 5.0
+        if self._loading_angle >= 360.0:
+            self._loading_angle -= 360.0
+        self.update()
+
     def set_state(self, state: SudokuState) -> None:
+        self._loading = False
+        self._loading_size = state.size
+        if self._loading_timer:
+            self._loading_timer.stop()
         self.state = state
         self.selected_cell = None
         self.hint_cell = None
@@ -209,6 +248,8 @@ class SudokuBoard(QWidget):
         top = (self.height() - board_size) / 2
         if self.state:
             cell = board_size / self.state.size
+        elif self._loading:
+            cell = board_size / self._loading_size
         else:
             cell = board_size / 9
         return left, top, board_size, cell
@@ -466,14 +507,72 @@ class SudokuBoard(QWidget):
         self._overlay_button_callback = None
         self.update()
 
-    def paintEvent(self, event) -> None:
-        if not self.state:
-            return
+    def _draw_loading(self, painter: QPainter, left: float, top: float, board_size: float) -> None:
+        # Board background (dimmed)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(18, 22, 32, 200))
+        painter.drawRoundedRect(QRectF(left - 8, top - 8, board_size + 16, board_size + 16), 12, 12)
 
+        # Preview grid
+        grid_size = self._loading_size
+        cell = board_size / grid_size
+        painter.setPen(QPen(QColor(255, 255, 255, 30), 1))
+        for i in range(1, grid_size):
+            x = left + i * cell
+            y = top + i * cell
+            painter.drawLine(int(x), int(top), int(x), int(top + board_size))
+            painter.drawLine(int(left), int(y), int(left + board_size), int(y))
+
+        # Border
+        painter.setPen(QPen(COLOR_PRIMARY.darker(180), 2))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(QRectF(left - 4, top - 4, board_size + 8, board_size + 8), 8, 8)
+
+        # Spinner
+        center_x = left + board_size / 2
+        center_y = top + board_size / 2
+        spinner_radius = min(60, board_size * 0.15)
+
+        painter.save()
+        painter.translate(center_x, center_y)
+        painter.rotate(self._loading_angle)
+
+        arc_pen = QPen(COLOR_PRIMARY, 4, Qt.SolidLine, Qt.RoundCap)
+        painter.setPen(arc_pen)
+        arc_rect = QRectF(-spinner_radius, -spinner_radius, spinner_radius * 2, spinner_radius * 2)
+        painter.drawArc(arc_rect, 0, 270 * 16)
+
+        for i in range(4):
+            alpha = 200 - i * 50
+            color = QColor(COLOR_PRIMARY)
+            color.setAlpha(max(0, alpha))
+            painter.setPen(QPen(color, 4, Qt.SolidLine, Qt.RoundCap))
+            painter.drawArc(arc_rect, (270 + i * 20) * 16, 15 * 16)
+
+        painter.restore()
+
+        # Loading text
+        font = QFont("Segoe UI", 14)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255, 200))
+        text_rect = QRectF(left, center_y + spinner_radius + 20, board_size, 30)
+        painter.drawText(text_rect, Qt.AlignCenter, "Generuji puzzle...")
+
+    def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
         left, top, board_size, cell = self._board_geometry()
+
+        if self._loading:
+            self._draw_loading(painter, left, top, board_size)
+            painter.end()
+            return
+
+        if not self.state:
+            painter.end()
+            return
+
         size = self.state.size
         box_r = self.state.config.box_rows
         box_c = self.state.config.box_cols
@@ -842,6 +941,7 @@ class SudokuWidget(QWidget):
             self._gen_task.cancel()
             self._gen_task = None
         self._generating = False
+        self.board.set_loading(False)
 
     def _cleanup_solution_thread(self) -> None:
         self._solution_task_id += 1
@@ -879,7 +979,7 @@ class SudokuWidget(QWidget):
         self.lbl_status.setText("⏳ Generuji puzzle...")
         self.lbl_progress.setText("")
         self._set_controls_enabled(False)
-        self.board.setEnabled(False)
+        self.board.set_loading(True, preview_size=self.size)
 
         task_id = self._gen_task_id
         size = self.size
@@ -913,7 +1013,7 @@ class SudokuWidget(QWidget):
 
     def _on_puzzle_ready(self, state: Optional[SudokuState]) -> None:
         self._generating = False
-        self.board.setEnabled(True)
+        self.board.set_loading(False)
         self._set_controls_enabled(True)
 
         if state is None:
@@ -1117,7 +1217,7 @@ class SudokuWidget(QWidget):
     def on_deactivate(self) -> None:
         self._cleanup_gen_thread()
         self._cleanup_solution_thread()
-        self.board.setEnabled(True)
+        self.board.set_loading(False)
         self._set_controls_enabled(True)
 
     def dispose(self) -> None:
