@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from games.kenken.engine import Cage, KenKenConfig, KenKenSolver, create_puzzle
+from games.kenken.engine import Cage, KenKenConfig, KenKenSolver, KenKenState, create_puzzle
 from hub.solver_contract import SolveStatus
 
 
@@ -65,6 +65,34 @@ class KenKenEngineTests(unittest.TestCase):
         self.assertEqual(result.status, SolveStatus.SOLVED)
         self.assertEqual(result.solutions_found, 1)
         self.assertEqual(result.solution, solution)
+
+    def test_state_completion_accepts_alternative_valid_solution(self) -> None:
+        n = 3
+        config = KenKenConfig.from_size(n)
+        embedded_solution = [
+            1, 2, 3,
+            2, 3, 1,
+            3, 1, 2,
+        ]
+        alternate_solution = [
+            1, 3, 2,
+            2, 1, 3,
+            3, 2, 1,
+        ]
+        cages = [
+            Cage(cells=[(row, col) for col in range(n)], target=6, operation="+")
+            for row in range(n)
+        ]
+
+        state = KenKenState(
+            config=config,
+            board=alternate_solution.copy(),
+            cages=cages,
+            solution=embedded_solution,
+            seed=55,
+        )
+        self.assertNotEqual(state.board, state.solution)
+        self.assertTrue(state.is_complete())
 
 
 if __name__ == "__main__":

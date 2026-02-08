@@ -47,6 +47,7 @@ sys.modules["sudoku_engine"] = _engine_module  # Required for dataclass to work
 _engine_spec.loader.exec_module(_engine_module)
 create_puzzle = _engine_module.create_puzzle
 SudokuState = _engine_module.SudokuState
+SudokuSolver = _engine_module.SudokuSolver
 
 _log = logging.getLogger(__name__)
 
@@ -784,6 +785,9 @@ class SudokuWidget(QWidget):
         self._gen_task: Optional[WorkerHandle] = None
         self._gen_task_id = 0
         self._generating = False
+        self._solution_task: Optional[WorkerHandle] = None
+        self._solution_task_id = 0
+        self._solution_signatures: Optional[Set[Tuple[int, ...]]] = None
 
         # Initialize buttons
         self._update_size_buttons("9")
@@ -839,6 +843,13 @@ class SudokuWidget(QWidget):
             self._gen_task = None
         self._generating = False
 
+    def _cleanup_solution_thread(self) -> None:
+        self._solution_task_id += 1
+        if self._solution_task is not None:
+            self._solution_task.cancel()
+            self._solution_task = None
+        self._solution_signatures = None
+
     def _on_size_selected(self, size: str) -> None:
         self._update_size_buttons(size)
         self.size = int(size)
@@ -859,6 +870,7 @@ class SudokuWidget(QWidget):
 
     def new_game(self) -> None:
         self._cleanup_gen_thread()
+        self._cleanup_solution_thread()
 
         self.game_complete = False
         self.hints_used = 0
@@ -919,8 +931,60 @@ class SudokuWidget(QWidget):
         diff_names = {"easy": "Lehká", "medium": "Střední", "hard": "Těžká"}
         self.lbl_status.setText(f"🎯 {self.size}×{self.size} · {diff_names[self.difficulty]}")
         self.lbl_progress.setText(f"📝 {filled}/{total} ({empty} prázdných)")
+        self._start_solution_analysis(state)
 
         self.update()
+
+    def _start_solution_analysis(self, state: SudokuState) -> None:
+        self._cleanup_solution_thread()
+
+        task_id = self._solution_task_id
+        config = state.config
+        board_snapshot = state.board.copy()
+        puzzle_seed = state.seed
+        size = state.size
+        difficulty = self.difficulty
+
+        def _collect_solutions() -> Tuple[int, Set[Tuple[int, ...]]]:
+            solver = SudokuSolver(config)
+            solutions = solver.enumerate_solutions(board_snapshot, limit=None)
+            signatures = {tuple(sol) for sol in solutions}
+            return (puzzle_seed, signatures)
+
+        def _done(result: Tuple[int, Set[Tuple[int, ...]]]) -> None:
+            if task_id != self._solution_task_id:
+                return
+            self._solution_task = None
+
+            seed, signatures = result
+            current = self.board.state
+            if current is None or current.seed != seed:
+                return
+
+            self._solution_signatures = signatures
+            _log.info(
+                "Sudoku solutions analyzed in background (size=%s, difficulty=%s, count=%s).",
+                size,
+                difficulty,
+                len(signatures),
+            )
+
+        def _error(exc: Exception) -> None:
+            if task_id != self._solution_task_id:
+                return
+            self._solution_task = None
+            self._solution_signatures = None
+            _log.error(
+                "Sudoku background solution analysis failed.",
+                exc_info=self._exc_info(exc),
+            )
+
+        self._solution_task = run_in_worker(
+            fn=_collect_solutions,
+            on_done=_done,
+            on_error=_error,
+            parent=self,
+        )
 
     def _on_hint(self) -> None:
         if self.game_complete or self._generating:
@@ -1029,6 +1093,16 @@ class SudokuWidget(QWidget):
 
     def _on_complete(self) -> None:
         self.game_complete = True
+        if self.board.state is not None and self._solution_signatures is not None:
+            board_signature = tuple(self.board.state.board)
+            if board_signature in self._solution_signatures:
+                _log.info("Sudoku completion matched one of %s analyzed solutions.", len(self._solution_signatures))
+            else:
+                # Defensive logging only: completion validity is checked in engine constraints.
+                _log.warning(
+                    "Sudoku completion not found in analyzed solution cache (cache_size=%s).",
+                    len(self._solution_signatures),
+                )
         elapsed = time.time() - self.start_time
         mins = int(elapsed // 60)
         secs = int(elapsed % 60)
@@ -1042,6 +1116,7 @@ class SudokuWidget(QWidget):
     # Lifecycle hooks (called by hub on mount/unmount)
     def on_deactivate(self) -> None:
         self._cleanup_gen_thread()
+        self._cleanup_solution_thread()
         self.board.setEnabled(True)
         self._set_controls_enabled(True)
 

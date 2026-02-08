@@ -147,8 +147,45 @@ class SudokuState:
         )
     
     def is_complete(self) -> bool:
-        """Check if puzzle is correctly completed."""
-        return self.board == self.solution
+        """Check if puzzle is fully filled and satisfies Sudoku constraints."""
+        size = self.size
+        expected = set(range(1, self.config.num_range + 1))
+
+        # Must be fully filled and within valid range.
+        for v in self.board:
+            if v < 1 or v > self.config.num_range:
+                return False
+
+        # Given clues must stay unchanged.
+        for idx, is_given in enumerate(self.initial):
+            if is_given and self.board[idx] != self.solution[idx]:
+                return False
+
+        # Rows
+        for r in range(size):
+            row_vals = self.board[r * size : (r + 1) * size]
+            if set(row_vals) != expected:
+                return False
+
+        # Columns
+        for c in range(size):
+            col_vals = [self.board[r * size + c] for r in range(size)]
+            if set(col_vals) != expected:
+                return False
+
+        # Boxes
+        box_r = self.config.box_rows
+        box_c = self.config.box_cols
+        for start_r in range(0, size, box_r):
+            for start_c in range(0, size, box_c):
+                vals: List[int] = []
+                for r in range(start_r, start_r + box_r):
+                    for c in range(start_c, start_c + box_c):
+                        vals.append(self.board[r * size + c])
+                if set(vals) != expected:
+                    return False
+
+        return True
     
     def count_filled(self) -> int:
         return sum(1 for v in self.board if v != 0)
@@ -236,6 +273,21 @@ class SudokuSolver:
             return board
         return None
 
+    def enumerate_solutions(
+        self,
+        board: List[int],
+        limit: Optional[int] = None,
+    ) -> List[List[int]]:
+        """
+        Enumerate valid solutions for a puzzle.
+
+        If `limit` is set, stops once that many solutions are found.
+        """
+        work = board.copy()
+        out: List[List[int]] = []
+        self._enumerate_recursive(work, out, limit)
+        return out
+
     def solve_result(
         self,
         board: List[int],
@@ -314,6 +366,31 @@ class SudokuSolver:
                 return True
             board[empty_idx] = 0
 
+        return False
+
+    def _enumerate_recursive(
+        self,
+        board: List[int],
+        out: List[List[int]],
+        limit: Optional[int],
+    ) -> bool:
+        """Returns True if enumeration should stop early."""
+        if limit is not None and len(out) >= limit:
+            return True
+
+        empty_idx, candidates = self._next_empty_with_candidates(board)
+        if empty_idx == -1:
+            out.append(board.copy())
+            return limit is not None and len(out) >= limit
+        if not candidates:
+            return False
+
+        for num in candidates:
+            board[empty_idx] = num
+            should_stop = self._enumerate_recursive(board, out, limit)
+            board[empty_idx] = 0
+            if should_stop:
+                return True
         return False
     
     def count_solutions(self, board: List[int], limit: int = 2) -> int:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from games.sudoku.engine import SudokuConfig, SudokuSolver, create_puzzle
+from games.sudoku.engine import SudokuConfig, SudokuSolver, SudokuState, create_puzzle
 from hub.solver_contract import SolveStatus
 
 
@@ -132,6 +132,53 @@ class SudokuEngineTests(unittest.TestCase):
         self.assertEqual(result.status, SolveStatus.SOLVED)
         self.assertEqual(result.solutions_found, 1)
         self.assertEqual(result.solution, KNOWN_SOLUTION_9X9)
+
+    def test_solver_enumerates_multiple_solutions_for_ambiguous_board(self) -> None:
+        config = SudokuConfig.from_size(4)
+        solver = SudokuSolver(config)
+        empty_board = [0] * (config.size * config.size)
+
+        limited = solver.enumerate_solutions(empty_board, limit=3)
+        self.assertEqual(len(limited), 3)
+
+        all_solutions = solver.enumerate_solutions(empty_board, limit=None)
+        self.assertGreater(len(all_solutions), 3)
+        self.assertEqual(len(all_solutions), len({tuple(solution) for solution in all_solutions}))
+        for solution in all_solutions[:10]:
+            self._assert_valid_solution_grid(solution, config)
+
+    def test_state_completion_accepts_any_valid_solution_not_only_embedded_one(self) -> None:
+        config = SudokuConfig.from_size(4)
+        solver = SudokuSolver(config)
+        ambiguous_board = [0] * (config.size * config.size)
+        solutions = solver.enumerate_solutions(ambiguous_board, limit=2)
+        self.assertEqual(len(solutions), 2)
+
+        embedded_solution, alternate_solution = solutions
+        self.assertNotEqual(embedded_solution, alternate_solution)
+
+        state = SudokuState(
+            config=config,
+            board=alternate_solution.copy(),
+            initial=[False] * (config.size * config.size),
+            solution=embedded_solution,
+            seed=123,
+        )
+        self.assertTrue(state.is_complete())
+
+        differing_index = next(
+            idx for idx, (embedded, alt) in enumerate(zip(embedded_solution, alternate_solution)) if embedded != alt
+        )
+        givens = [False] * (config.size * config.size)
+        givens[differing_index] = True
+        state_with_conflicting_given = SudokuState(
+            config=config,
+            board=alternate_solution.copy(),
+            initial=givens,
+            solution=embedded_solution,
+            seed=124,
+        )
+        self.assertFalse(state_with_conflicting_given.is_complete())
 
 
 if __name__ == "__main__":
