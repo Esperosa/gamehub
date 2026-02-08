@@ -1,6 +1,40 @@
 # GameHub
 
-Desktop aplikace v Pythonu (PySide6), která sdružuje více logických her do jednoho přehledného launcheru.
+<p align="center">
+  <img src="hub/assets/brainhub.png" alt="GameHub logo" width="120" />
+</p>
+
+<p align="center">
+  Desktop aplikace v Pythonu (PySide6), ktera sdruzuje logicke hry, AI moduly a tisk/PDF exporty do jednoho launcheru.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Esperosa/gamehub/releases"><img src="https://img.shields.io/github/v/release/Esperosa/gamehub?label=release&style=for-the-badge" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-27c2ff?style=for-the-badge" alt="MIT license"></a>
+  <a href="ARCHITECTURE.md"><img src="https://img.shields.io/badge/plugin%20api-manifest%20only-8f7dff?style=for-the-badge" alt="Plugin API"></a>
+  <a href="docs/print_export_samples.md"><img src="https://img.shields.io/badge/print%2FPDF-ready-f4a93a?style=for-the-badge" alt="Print and PDF"></a>
+</p>
+
+<p align="center">
+  <img src="docs/media/repo_hero.png" alt="GameHub hero" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/media/showcase.gif" alt="GameHub animated showcase" width="100%" />
+</p>
+
+## Quick Links
+
+| Download | Quick Start | Architecture | Print/PDF | Benchmarks |
+|---|---|---|---|---|
+| [Releases](https://github.com/Esperosa/gamehub/releases) | [Rychly start](#rychly-start) | [ARCHITECTURE.md](ARCHITECTURE.md) | [print_export_samples.md](docs/print_export_samples.md) | [benchmarks/README.md](benchmarks/README.md) |
+
+## GitHub Branding
+
+- Social preview obrazek: `docs/media/social_preview.png`
+- README hero set: `docs/media/repo_hero.png` + `docs/media/showcase.gif`
+- Regenerace assetu: `python scripts/generate_repo_branding.py --output-dir docs/media`
+- Manual pro repo branding: `docs/repository_branding.md`
 
 ## Download
 
@@ -45,6 +79,12 @@ Print dialog screenshoty + PDF sample exporty:
 
 ```bash
 .venv\Scripts\python scripts/generate_print_assets.py --media-dir docs/media --sample-dir docs/samples
+```
+
+Branding hero/social preview assety:
+
+```bash
+.venv\Scripts\python scripts/generate_repo_branding.py --output-dir docs/media
 ```
 
 | Hub | 2048 |
@@ -96,6 +136,7 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - `CHANGELOG.md` - verze a změny
 - `docs/sudoku_generation_performance.md` - srovnání variant generování Sudoku 16x16 hard a výsledky benchmarku
 - `docs/print_export_samples.md` - jak vznikají print dialog screenshoty a PDF sample exporty
+- `docs/repository_branding.md` - jak regenerovat README hero/social preview assety
 - `benchmarks/README.md` - benchmark artefakty a jejich kontext
 
 ## Co v aplikaci je
