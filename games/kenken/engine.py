@@ -5,12 +5,13 @@ Design principles:
 - O(N²) Latin square via cyclic construction + permutations
 - Merge-partition caging for natural cage shapes
 - - and / only for 2-cell cages
-- Unique solution via regeneration
+- Fast generator tuned for responsive UI
 - Fast constraint propagation with precomputed cage possibilities
 - Bitset-based candidate tracking for O(1) operations
 - Numba JIT compilation for native-speed solving
 
-All puzzles are guaranteed to have exactly one solution.
+Note: current Calcudoku-based generation does not hard-guarantee uniqueness.
+Uniqueness can be evaluated by `KenKenSolver.count_solutions(...)`.
 """
 from __future__ import annotations
 
@@ -1513,6 +1514,9 @@ class KenKenGenerator:
     
     Uses dannyzed/pycalcudoku for puzzle generation.
     Operations: + - * / (all supported)
+
+    This path prioritizes speed and cage quality. It does not run a strict
+    uniqueness loop before returning the puzzle.
     """
     
     # Map calcudoku operation names to our symbols

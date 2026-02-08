@@ -1,0 +1,124 @@
+{
+  "generated_at_utc": "2026-02-08T21:07:47Z",
+  "samples_per_variant": 20,
+  "base_seed": 20260208,
+  "sudoku": {
+    "method": "alternative-solution probe",
+    "results": [
+      {
+        "size": 4,
+        "difficulty": "medium",
+        "samples": 20,
+        "alternatives_found": 0,
+        "inconclusive_timeout": 0,
+        "verify_timeout_s": null,
+        "avg_verify_ms": 0.01,
+        "max_verify_ms": 0.01
+      },
+      {
+        "size": 6,
+        "difficulty": "medium",
+        "samples": 20,
+        "alternatives_found": 0,
+        "inconclusive_timeout": 0,
+        "verify_timeout_s": null,
+        "avg_verify_ms": 0.03,
+        "max_verify_ms": 0.03
+      },
+      {
+        "size": 9,
+        "difficulty": "medium",
+        "samples": 20,
+        "alternatives_found": 0,
+        "inconclusive_timeout": 0,
+        "verify_timeout_s": null,
+        "avg_verify_ms": 0.1,
+        "max_verify_ms": 0.12
+      },
+      {
+        "size": 16,
+        "difficulty": "hard",
+        "samples": 20,
+        "alternatives_found": 0,
+        "inconclusive_timeout": 0,
+        "verify_timeout_s": 1.5,
+        "avg_verify_ms": 30.04,
+        "max_verify_ms": 56.34
+      }
+    ]
+  },
+  "kenken": {
+    "method": "count_solutions(limit=2, timeout=0.8s)",
+    "results": [
+      {
+        "size": 4,
+        "samples": 20,
+        "unique": 0,
+        "multiple_or_ambiguous": 20,
+        "count_timeout": 0,
+        "avg_count_ms": 0.37,
+        "max_count_ms": 0.81,
+        "count_timeout_s": 0.8
+      },
+      {
+        "size": 6,
+        "samples": 20,
+        "unique": 4,
+        "multiple_or_ambiguous": 16,
+        "count_timeout": 0,
+        "avg_count_ms": 14.78,
+        "max_count_ms": 70.79,
+        "count_timeout_s": 0.8
+      },
+      {
+        "size": 8,
+        "samples": 20,
+        "unique": 1,
+        "multiple_or_ambiguous": 8,
+        "count_timeout": 11,
+        "avg_count_ms": 583.2,
+        "max_count_ms": 801.87,
+        "count_timeout_s": 0.8
+      }
+    ]
+  },
+  "nonogram": {
+    "method": "solve_result(timeout=1.5s, detect_multiple=True)",
+    "results": [
+      {
+        "size": 5,
+        "samples": 20,
+        "unique": 19,
+        "multiple_or_ambiguous": 1,
+        "solve_timeout": 0,
+        "unsolvable": 0,
+        "avg_solve_ms": 0.41,
+        "max_solve_ms": 0.87,
+        "solve_timeout_s": 1.5
+      },
+      {
+        "size": 10,
+        "samples": 20,
+        "unique": 20,
+        "multiple_or_ambiguous": 0,
+        "solve_timeout": 0,
+        "unsolvable": 0,
+        "avg_solve_ms": 1.38,
+        "max_solve_ms": 2.12,
+        "solve_timeout_s": 1.5
+      },
+      {
+        "size": 15,
+        "samples": 20,
+        "unique": 18,
+        "multiple_or_ambiguous": 2,
+        "solve_timeout": 0,
+        "unsolvable": 0,
+        "avg_solve_ms": 2.95,
+        "max_solve_ms": 7.02,
+        "solve_timeout_s": 1.5
+      }
+    ]
+  },
+  "total_runtime_s": 33.895
+}

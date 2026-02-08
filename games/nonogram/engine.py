@@ -844,7 +844,8 @@ def generate_random_puzzle(width: int, height: int, fill_ratio: float = 0.5,
         seed: Random seed for reproducibility
     
     Returns:
-        NonogramPuzzle with unique solution
+        NonogramPuzzle with a valid reference solution
+        (uniqueness is not hard-guaranteed)
     """
     if seed is not None:
         random.seed(seed)
