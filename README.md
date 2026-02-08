@@ -73,6 +73,7 @@ Skript automaticky:
 - `ARCHITECTURE.md` - načítání pluginů, lifecycle, vrstvy hry, template pro novou hru
 - `CONTRIBUTING.md` - dev setup, testy, coding style, contribution workflow
 - `CHANGELOG.md` - verze a změny
+- `docs/sudoku_generation_performance.md` - srovnání variant generování Sudoku 16x16 hard a výsledky benchmarku
 
 ## Co v aplikaci je
 
