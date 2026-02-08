@@ -14,10 +14,9 @@ from __future__ import annotations
 import random
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Set
+from typing import List, Optional, Set, Tuple
 
-from hub.solver_contract import Hint, SolveStatus, SolverResult
-
+from hub.solver_contract import Hint, SolverResult, SolveStatus
 
 _SIZE_TO_BOX = {
     4: (2, 2),
@@ -203,7 +202,7 @@ class SudokuState:
     
     def get_conflicts(self, row: int, col: int) -> Set[Tuple[int, int]]:
         """Get cells that conflict with the given cell."""
-        conflicts = set()
+        conflicts: Set[Tuple[int, int]] = set()
         val = self.get(row, col)
         if val == 0:
             return conflicts
@@ -300,9 +299,12 @@ class SudokuSolver:
 
         If `limit` is set, stops once that many solutions are found.
         """
-        work = board.copy()
         out: List[List[int]] = []
-        self._enumerate_recursive(work, out, limit)
+        prepared = self._prepare_search_state(board)
+        if prepared is None:
+            return out
+        work, row_free, col_free, box_free = prepared
+        self._enumerate_recursive(work, row_free, col_free, box_free, out, limit)
         return out
 
     def solve_result(
@@ -369,25 +371,12 @@ class SudokuSolver:
             message="Solved" if status == SolveStatus.SOLVED else "Multiple valid solutions found.",
         )
     
-    def _solve_recursive(self, board: List[int]) -> bool:
-        """Recursive backtracking solver."""
-        empty_idx, candidates = self._next_empty_with_candidates(board)
-        if empty_idx == -1:
-            return True  # Solved
-        if not candidates:
-            return False
-
-        for num in candidates:
-            board[empty_idx] = num
-            if self._solve_recursive(board):
-                return True
-            board[empty_idx] = 0
-
-        return False
-
     def _enumerate_recursive(
         self,
         board: List[int],
+        row_free: List[int],
+        col_free: List[int],
+        box_free: List[int],
         out: List[List[int]],
         limit: Optional[int],
     ) -> bool:
@@ -395,17 +384,40 @@ class SudokuSolver:
         if limit is not None and len(out) >= limit:
             return True
 
-        empty_idx, candidates = self._next_empty_with_candidates(board)
-        if empty_idx == -1:
+        idx, mask = self._select_cell_mask(board, row_free, col_free, box_free)
+        if idx == -1:
             out.append(board.copy())
             return limit is not None and len(out) >= limit
-        if not candidates:
+        if mask == 0:
             return False
 
-        for num in candidates:
-            board[empty_idx] = num
-            should_stop = self._enumerate_recursive(board, out, limit)
-            board[empty_idx] = 0
+        row = idx // self.size
+        col = idx % self.size
+        box = self._box_index[idx]
+
+        while mask:
+            bit = mask & -mask
+            mask ^= bit
+            val = bit.bit_length()
+            board[idx] = val
+            row_free[row] &= ~bit
+            col_free[col] &= ~bit
+            box_free[box] &= ~bit
+
+            should_stop = self._enumerate_recursive(
+                board,
+                row_free,
+                col_free,
+                box_free,
+                out,
+                limit,
+            )
+
+            row_free[row] |= bit
+            col_free[col] |= bit
+            box_free[box] |= bit
+            board[idx] = 0
+
             if should_stop:
                 return True
         return False
@@ -453,27 +465,6 @@ class SudokuSolver:
             return True
         return found
     
-    def _count_recursive(self, board: List[int]) -> bool:
-        """Returns True if should stop counting."""
-        if self._solution_count >= self._solution_limit:
-            return True
-
-        empty_idx, candidates = self._next_empty_with_candidates(board)
-        if empty_idx == -1:
-            self._solution_count += 1
-            return self._solution_count >= self._solution_limit
-        if not candidates:
-            return False
-
-        for num in candidates:
-            board[empty_idx] = num
-            if self._count_recursive(board):
-                board[empty_idx] = 0
-                return True
-            board[empty_idx] = 0
-
-        return False
-
     def _prepare_search_state(
         self, board: List[int]
     ) -> Optional[Tuple[List[int], List[int], List[int], List[int]]]:
@@ -682,29 +673,6 @@ class SudokuSolver:
             board[idx] = 0
 
         return False
-
-    def _next_empty_with_candidates(self, board: List[int]) -> Tuple[int, List[int]]:
-        """Return (index, candidates) using MRV. index=-1 when solved."""
-        best_idx = -1
-        best_candidates: List[int] = []
-        size = self.size
-
-        for idx, value in enumerate(board):
-            if value != 0:
-                continue
-            row = idx // size
-            col = idx % size
-            candidates = [num for num in self.values if self.is_valid(board, row, col, num)]
-            if not candidates:
-                return idx, []
-            if best_idx == -1 or len(candidates) < len(best_candidates):
-                best_idx = idx
-                best_candidates = candidates
-                if len(best_candidates) == 1:
-                    break
-
-        return best_idx, best_candidates
-
 
 class SudokuGenerator:
     """Generate valid sudoku puzzles with unique solutions."""
