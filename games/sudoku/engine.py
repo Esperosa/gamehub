@@ -53,7 +53,7 @@ _UNIQUENESS_CHECK_TIMEOUT_S = {
     16: {
         "easy": 0.03,
         "medium": 0.05,
-        "hard": 0.08,
+        "hard": 0.05,
     },
 }
 
