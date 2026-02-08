@@ -10,14 +10,12 @@ from typing import Callable
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from hub.main_window import MainWindow  # noqa: E402
 from hub.theme import apply_theme  # noqa: E402
-
 
 GAME_SCREENSHOTS = {
     "game2048": "game2048.png",
@@ -232,7 +230,7 @@ def run(output_dir: Path) -> None:
     generated.append(home_path)
     print(f"[ok] home -> {home_path}")
 
-    plugins_by_id = {lp.plugin.meta.id: lp for lp in window._plugins}  # noqa: SLF001
+    plugins_by_id = {lp.manifest.id: lp for lp in window._plugins}  # noqa: SLF001
 
     for game_id, filename in GAME_SCREENSHOTS.items():
         plugin = plugins_by_id.get(game_id)

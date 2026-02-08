@@ -11,8 +11,7 @@ import traceback
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple
-
+from typing import Callable, List, Optional, Sequence, Tuple
 
 ROOT = Path(__file__).resolve().parent
 GAMES_DIR = ROOT / "games"
@@ -66,6 +65,7 @@ def run_plugin_smoke() -> List[CheckResult]:
 
     try:
         from PySide6.QtWidgets import QApplication, QWidget
+
         from hub.plugin_loader import discover_plugins
     except Exception as exc:
         return [CheckResult("plugin-smoke", False, _ms(start), f"import error: {exc!r}")]
@@ -91,9 +91,9 @@ def run_plugin_smoke() -> List[CheckResult]:
 
     for lp in loaded:
         plugin_start = time.perf_counter()
-        check_name = f"plugin:{lp.plugin.meta.id}"
+        check_name = f"plugin:{lp.manifest.id}"
         try:
-            widget = lp.plugin.create_widget(parent=None)
+            widget = lp.manifest.create_widget(parent=None)
             if not isinstance(widget, QWidget):
                 raise TypeError(f"create_widget() returned {type(widget)!r}, expected QWidget")
 

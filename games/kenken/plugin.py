@@ -1,45 +1,38 @@
-"""
-KenKen Game Plugin - Implements GamePlugin interface
-"""
+"""KenKen plugin manifest."""
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-# Add games/kenken to path for imports
-_this_dir = Path(__file__).resolve().parent
-if str(_this_dir) not in sys.path:
-    sys.path.insert(0, str(_this_dir))
-
-from hub.plugin_api import BaseGamePlugin, GameMeta
+from hub.plugin_api import PluginManifest
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
 
 
-class KenKenPlugin(BaseGamePlugin):
-    """Plugin class for KenKen game."""
-    
-    meta = GameMeta(
-        id="kenken",
-        name="KenKen",
-        description="Logická hra s klecemi a aritmetickými operacemi",
-        version="1.0.0",
-        author="GameHub",
-        graphic_text="6× 3+",
-    )
-    
-    def create_widget(self, parent=None) -> "QWidget":
-        """Create and return the game widget."""
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("kenken_ui", _this_dir / "ui" / "__init__.py")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["kenken_ui"] = module  # Required for proper module loading
-        spec.loader.exec_module(module)
-        return module.KenKenWidget(parent)
+_THIS_DIR = Path(__file__).resolve().parent
+if str(_THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(_THIS_DIR))
 
 
-# Export plugin instance (required by plugin loader)
-plugin = KenKenPlugin()
+def _create_widget(parent=None) -> "QWidget":
+    spec = importlib.util.spec_from_file_location("kenken_ui", _THIS_DIR / "ui" / "__init__.py")
+    if spec is None or spec.loader is None:
+        raise ImportError("Cannot load kenken UI module.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["kenken_ui"] = module
+    spec.loader.exec_module(module)
+    return module.KenKenWidget(parent)
 
+
+manifest = PluginManifest(
+    id="kenken",
+    name="KenKen",
+    description="Logická hra s klecemi a aritmetickými operacemi",
+    version="1.0.0",
+    author="GameHub",
+    graphic_text="6× 3+",
+    create_widget=_create_widget,
+)

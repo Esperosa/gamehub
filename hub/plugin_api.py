@@ -6,18 +6,6 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checka
 
 from PySide6.QtWidgets import QWidget
 
-
-@dataclass(frozen=True)
-class GameMeta:
-    id: str
-    name: str
-    description: str
-    version: str = "0.1.0"
-    author: str = ""
-    icon_path: Optional[str] = None  # relative path inside plugin folder
-    graphic_text: Optional[str] = None  # decorative text/symbols for card (e.g. "✕ ◯")
-
-
 WidgetFactory = Callable[[Optional[QWidget]], QWidget]
 SettingsFactory = Callable[[], Dict[str, Any]]
 
@@ -92,52 +80,3 @@ def validate_manifest(manifest: PluginManifest) -> List[str]:
         errors.append("settings_schema must be callable")
 
     return errors
-
-
-class GamePlugin(Protocol):
-    meta: GameMeta
-
-    def create_widget(self, parent: Optional[QWidget] = None) -> QWidget: ...
-    def default_settings(self) -> Dict[str, Any]: ...
-    def settings_schema(self) -> Dict[str, Any]: ...
-
-
-class BaseGamePlugin:
-    meta: GameMeta
-
-    def default_settings(self) -> Dict[str, Any]:
-        return {}
-
-    def settings_schema(self) -> Dict[str, Any]:
-        return {}
-
-
-class ManifestBackedPlugin(BaseGamePlugin):
-    """Adapter that exposes a PluginManifest as legacy GamePlugin interface."""
-
-    def __init__(self, manifest: PluginManifest):
-        self._manifest = manifest
-        self.meta = GameMeta(
-            id=manifest.id,
-            name=manifest.name,
-            description=manifest.description,
-            version=manifest.version,
-            author=manifest.author,
-            icon_path=manifest.icon_path,
-            graphic_text=manifest.graphic_text,
-        )
-
-    def create_widget(self, parent: Optional[QWidget] = None) -> QWidget:
-        return self._manifest.create_widget(parent)
-
-    def default_settings(self) -> Dict[str, Any]:
-        if self._manifest.default_settings is None:
-            return {}
-        out = self._manifest.default_settings()
-        return out if isinstance(out, dict) else {}
-
-    def settings_schema(self) -> Dict[str, Any]:
-        if self._manifest.settings_schema is None:
-            return {}
-        out = self._manifest.settings_schema()
-        return out if isinstance(out, dict) else {}

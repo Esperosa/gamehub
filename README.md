@@ -296,7 +296,7 @@ requirements.txt
 
 1. Vytvoř složku `games/nazev_hry/`
 2. Přidej `plugin.py`
-3. V `plugin.py` exportuj proměnnou `plugin` kompatibilní s `hub.plugin_api.BaseGamePlugin`
+3. V `plugin.py` exportuj `manifest = PluginManifest(...)`
 
 ## Build a Release Artifact
 

@@ -5,21 +5,29 @@ import time
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import Qt, QTimer, QStandardPaths
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtCore import QStandardPaths, Qt, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QStackedWidget, QGridLayout,
-    QFrame, QMessageBox, QStyle, QSizePolicy
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QStackedWidget,
+    QStyle,
+    QVBoxLayout,
+    QWidget,
 )
 
-from hub.plugin_loader import discover_plugins, LoadedPlugin
+from hub.plugin_loader import LoadedPlugin, discover_plugins
+from hub.theme import apply_theme
 from hub.widgets.background import AnimatedBackground
 from hub.widgets.game_card import GameCard
-from hub.widgets.transitions import fade_in
 from hub.widgets.skeleton import SkeletonCard
-from hub.theme import apply_theme
-
+from hub.widgets.transitions import fade_in
 
 _log = logging.getLogger(__name__)
 
@@ -67,21 +75,21 @@ class HomePage(QWidget):
             # Create cards for plugins
             for lp in self._plugins[:self._total_slots]:  # Max 9 games
                 icon = None
-                if lp.plugin.meta.icon_path:
-                    icon_file = lp.folder / lp.plugin.meta.icon_path
+                if lp.manifest.icon_path:
+                    icon_file = lp.folder / lp.manifest.icon_path
                     if icon_file.exists():
                         icon = QIcon(str(icon_file))
-                graphic = getattr(lp.plugin.meta, 'graphic_text', None)
+                graphic = getattr(lp.manifest, 'graphic_text', None)
                 if self._on_open:
                     card = GameCard(
-                        lp.plugin.meta.name,
-                        lp.plugin.meta.description,
+                        lp.manifest.name,
+                        lp.manifest.description,
                         on_click=lambda lp=lp: self._on_open(lp),
                         icon=icon,
                         graphic_text=graphic,
                     )
                 else:
-                    card = GameCard(lp.plugin.meta.name, lp.plugin.meta.description, 
+                    card = GameCard(lp.manifest.name, lp.manifest.description, 
                                    on_click=None, icon=icon, graphic_text=graphic)
                 # Force equal cell sizing in the 3x3 grid regardless of card content hints.
                 card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
@@ -229,8 +237,8 @@ class MainWindow(QMainWindow):
 
     def _sorted_plugins(self) -> List[LoadedPlugin]:
         def key(lp: LoadedPlugin):
-            ts = self._last_runs.get(lp.plugin.meta.id, 0)
-            return (-ts, lp.plugin.meta.name.lower())
+            ts = self._last_runs.get(lp.manifest.id, 0)
+            return (-ts, lp.manifest.name.lower())
         return sorted(self._plugins, key=key)
 
     def _reload_plugins(self, initial: bool = False) -> None:
@@ -324,7 +332,7 @@ class MainWindow(QMainWindow):
 
     def open_plugin(self, lp: LoadedPlugin) -> None:
         # update last-run info
-        self._last_runs[lp.plugin.meta.id] = time.time()
+        self._last_runs[lp.manifest.id] = time.time()
         self._save_last_runs()
         self._teardown_active_plugin()
 
@@ -342,7 +350,7 @@ class MainWindow(QMainWindow):
         btn_back.setIcon(self.style().standardIcon(QStyle.SP_ArrowBack))
         btn_back.clicked.connect(self._go_home)
 
-        name = QLabel(lp.plugin.meta.name)
+        name = QLabel(lp.manifest.name)
         name.setObjectName("Header2")
 
         top_l.addWidget(btn_back)
@@ -352,19 +360,19 @@ class MainWindow(QMainWindow):
         v.addWidget(top)
 
         try:
-            widget = lp.plugin.create_widget(parent=page)
+            widget = lp.manifest.create_widget(parent=page)
             v.addWidget(widget, 1)
             self._active_plugin_widget = widget
         except Exception as exc:
             _log.error(
                 "Plugin '%s' failed during widget creation.",
-                lp.plugin.meta.id,
+                lp.manifest.id,
                 exc_info=self._exc_info(exc),
             )
             QMessageBox.critical(
                 self,
                 "GameHub",
-                f"Hru '{lp.plugin.meta.name}' se nepodarilo otevrit. Podrobnosti jsou v logu.",
+                f"Hru '{lp.manifest.name}' se nepodarilo otevrit. Podrobnosti jsou v logu.",
             )
             err = QLabel(f"Plugin spadl při vytváření widgetu:\n{exc!r}")
             err.setWordWrap(True)

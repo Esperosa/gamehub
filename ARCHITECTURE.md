@@ -41,12 +41,9 @@ Vstupní tok:
 1. Projde složky v `games/`.
 2. V každé složce hledá `plugin.py`.
 3. `plugin.py` načte přes `importlib`.
-4. Přijímá entrypointy v pořadí:
-   - `manifest: PluginManifest` (preferované),
-   - `get_manifest() -> PluginManifest`,
-   - legacy `plugin` objekt (`BaseGamePlugin` style).
+4. Vyžaduje entrypoint `manifest: PluginManifest`.
 5. Manifest validuje přes `validate_manifest()` (`hub/plugin_api.py`).
-6. Manifest obalí do `ManifestBackedPlugin` a vrátí jako `LoadedPlugin`.
+6. Vrací `LoadedPlugin(manifest=..., folder=...)`.
 
 ## 4. Lifecycle hry
 
