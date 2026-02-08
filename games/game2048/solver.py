@@ -34,7 +34,10 @@ def _jit(*args, **kwargs):
     Python GIL, so UI/event callbacks stay responsive while solver work runs
     in background threads.
     """
-    opts = {"cache": True, "nogil": True}
+    # Do not use disk cache here: this solver is loaded under multiple module
+    # aliases (plugin layer vs direct import), and numba cache metadata can
+    # then reference a module name that is unavailable in another load path.
+    opts = {"nogil": True}
     opts.update(kwargs)
     if args:
         return njit(*args, **opts)
