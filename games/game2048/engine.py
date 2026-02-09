@@ -111,14 +111,19 @@ class Game2048:
         old_grid = copy.deepcopy(self.grid)
         score_gained = 0
 
+        # Accept enum-like direction values from different module aliases
+        # (plugin layer imports can create distinct Direction classes with
+        # identical `.value` strings).
+        direction_value = direction.value if hasattr(direction, "value") else direction
+
         # Rotate grid so we can always slide left
-        if direction == Direction.LEFT:
+        if direction_value == Direction.LEFT.value:
             rotations = 0
-        elif direction == Direction.DOWN:
+        elif direction_value == Direction.DOWN.value:
             rotations = 1
-        elif direction == Direction.RIGHT:
+        elif direction_value == Direction.RIGHT.value:
             rotations = 2
-        elif direction == Direction.UP:
+        elif direction_value == Direction.UP.value:
             rotations = 3
         else:
             return False

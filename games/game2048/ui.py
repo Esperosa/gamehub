@@ -779,9 +779,9 @@ class Game2048Widget(QWidget):
         # Auto-solve state
         self._solving = False
         self._solve_timer: Optional[QTimer] = None
-        # Keep default autoplay depth responsive; deeper tactical lookahead
-        # is still applied adaptively inside the solver when the board tightens.
-        self._solver = Solver2048(depth=4, fast_mode=False)
+        # Player-ply expectimax is stronger but costlier; keep defaults tuned
+        # for smooth UI and let solver adapt depth on tighter boards.
+        self._solver = Solver2048(depth=2, fast_mode=False, chance_branch_limit=6)
         self._solver_ready = False
         self._solver_warming = False
         self._solver_warmup_task: Optional[WorkerHandle] = None
@@ -1008,7 +1008,7 @@ class Game2048Widget(QWidget):
             if callable(warm_fn):
                 warm_fn()
             # Fallback warmup path that triggers lazy compile if needed.
-            probe_solver = Solver2048(depth=4, fast_mode=True)
+            probe_solver = Solver2048(depth=2, fast_mode=True, chance_branch_limit=6)
             probe_solver.get_move([[2, 4, 2, 4], [4, 2, 4, 2], [2, 0, 2, 4], [4, 2, 4, 0]])
             return True
 

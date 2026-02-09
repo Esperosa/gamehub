@@ -6,7 +6,12 @@ import numpy as np
 
 from games.game2048.engine import Direction as EngineDirection
 from games.game2048.engine import Game2048
-from games.game2048.solver import get_best_move, near_2048_potential_numba
+from games.game2048.solver import (
+    build_weight_vector,
+    get_best_move,
+    get_default_weights,
+    near_2048_potential_numba,
+)
 
 
 class Game2048SolverTests(unittest.TestCase):
@@ -93,6 +98,33 @@ class Game2048SolverTests(unittest.TestCase):
             near_2048_potential_numba(open_board),
             near_2048_potential_numba(cramped_board),
         )
+
+    def test_weight_vector_overrides_known_key(self) -> None:
+        defaults = get_default_weights()
+        vector = build_weight_vector({"empty_cells": defaults["empty_cells"] * 1.5})
+        default_vector = build_weight_vector()
+        self.assertNotEqual(float(vector[3]), float(default_vector[3]))
+
+    def test_weight_vector_rejects_unknown_key(self) -> None:
+        with self.assertRaises(KeyError):
+            build_weight_vector({"does_not_exist": 1.0})
+
+    def test_get_best_move_accepts_weight_overrides(self) -> None:
+        grid = [
+            [2, 2, 4, 8],
+            [16, 32, 64, 128],
+            [256, 0, 0, 2],
+            [4, 8, 16, 32],
+        ]
+        move = get_best_move(
+            grid,
+            depth=2,
+            weights={"left_bias": 200.0, "right_penalty": 20.0},
+            chance_branch_limit=6,
+        )
+        self.assertIsNotNone(move)
+        assert move is not None
+        self._apply_move(grid, move.value)
 
 
 if __name__ == "__main__":

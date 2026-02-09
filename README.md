@@ -200,6 +200,7 @@ Ukázkové PDF exporty layoutů `1/2/4/6/9` na stránku:
 - `docs/repository_branding.md` - jak regenerovat README hero/social preview assety
 - `scripts/generate_gameplay_clips.py` - automatická tvorba 8s gameplay klipů pro README
 - `scripts/audit_solver_claims.py` - reprodukovatelný audit claimů (Sudoku/KenKen/Nonogram)
+- `scripts/benchmark_game2048_solver.py` - CLI benchmark a tuning vah 2048 solveru (`--weight key=value`)
 - `.github/workflows/ci.yml` - CI kontrola (`ruff`, `mypy`, `pytest`)
 - `.github/workflows/codeql.yml` - bezpečnostní code scanning (CodeQL)
 - `benchmarks/README.md` - benchmark artefakty a jejich kontext
