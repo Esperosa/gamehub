@@ -8,7 +8,7 @@ import os
 import random
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, as_completed, wait
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -29,6 +29,10 @@ _SCHEMA_VERSION = 2
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _log(message: str) -> None:
+    print(message, flush=True)
 
 
 def _logical_cpu_count() -> int:
@@ -93,6 +97,11 @@ def _probe_parallel_workers(
     prev_throughput: float | None = None
     low_gain_streak = 0
 
+    _log(
+        f"[probe] start: candidates={candidates} min_games={min_games} "
+        f"max_games={max_games} target_headroom={float(args.cpu_headroom_percent):.1f}%"
+    )
+
     for workers in candidates:
         games = max(min_games, workers * games_per_worker)
         games = min(games, max_games)
@@ -143,8 +152,17 @@ def _probe_parallel_workers(
             }
         )
 
+        _log(
+            f"[probe] workers={workers} games={games} "
+            f"throughput={throughput:.2f} games/s "
+            f"avg_think_ms={float(summary.get('solver_time', {}).get('avg_think_ms_per_move', 0.0)):.2f} "
+            f"win_rate={float(summary.get('win_rate_2048', 0.0)):.2%} "
+            f"gain_vs_prev={rel_gain:.2%}"
+        )
+
         # Stop after two consecutive low-gain steps to stay cautious and quick.
         if low_gain_streak >= 2 and workers >= 4:
+            _log("[probe] early-stop: diminishing throughput gains.")
             break
 
     if best_throughput <= 0:
@@ -171,6 +189,77 @@ def _probe_parallel_workers(
         "samples": rows,
         "used_fallback": False,
     }
+
+
+def _cpu_percent_now() -> float:
+    if psutil is None:
+        return 0.0
+    try:
+        return float(psutil.cpu_percent(interval=None))
+    except Exception:
+        return 0.0
+
+
+def _progress_stats_from_agents(agents: list[dict[str, Any]]) -> dict[str, float]:
+    done_games = 0
+    done_agents = 0
+    weighted_score = 0.0
+    weighted_win = 0.0
+
+    for agent in agents:
+        if not isinstance(agent, dict) or agent.get("status") != "done":
+            continue
+        result = agent.get("result")
+        if not isinstance(result, dict):
+            continue
+        summary = result.get("summary")
+        if not isinstance(summary, dict):
+            continue
+
+        games = int(agent.get("games", 0))
+        score_avg = float(summary.get("score", {}).get("avg", 0.0))
+        win_rate = float(summary.get("win_rate_2048", 0.0))
+
+        done_agents += 1
+        done_games += games
+        weighted_score += score_avg * games
+        weighted_win += win_rate * games
+
+    avg_score = weighted_score / max(1, done_games)
+    avg_win = weighted_win / max(1, done_games)
+    return {
+        "done_agents": float(done_agents),
+        "done_games": float(done_games),
+        "avg_score": float(avg_score),
+        "avg_win_rate": float(avg_win),
+    }
+
+
+def _adjust_dynamic_limit(
+    *,
+    current_limit: int,
+    min_limit: int,
+    max_limit: int,
+    cpu_percent: float,
+    target_cpu_percent: float,
+    up_margin: float,
+    down_margin: float,
+) -> tuple[int, str]:
+    next_limit = current_limit
+    reason = "hold"
+
+    if cpu_percent > target_cpu_percent + down_margin and current_limit > min_limit:
+        next_limit = current_limit - 1
+        reason = "cpu_high"
+    elif cpu_percent < target_cpu_percent - up_margin and current_limit < max_limit:
+        next_limit = current_limit + 1
+        reason = "cpu_low"
+
+    if next_limit < min_limit:
+        next_limit = min_limit
+    if next_limit > max_limit:
+        next_limit = max_limit
+    return next_limit, reason
 
 
 def _load_benchmark_runner() -> Any:
@@ -499,9 +588,14 @@ def _snapshot_config(args: argparse.Namespace, parallel_probe: dict[str, Any] | 
         "benchmark_workers": int(args.benchmark_workers),
         "auto_parallel": bool(args.auto_parallel),
         "auto_probe": bool(args.auto_probe),
+        "dynamic_cpu_control": bool(args.dynamic_cpu_control),
         "parallel_games": int(args.parallel_games),
         "cpu_reserve": int(args.cpu_reserve),
         "cpu_reserve_percent": float(args.cpu_reserve_percent),
+        "cpu_headroom_percent": float(args.cpu_headroom_percent),
+        "cpu_adjust_interval_s": float(args.cpu_adjust_interval_s),
+        "cpu_up_margin": float(args.cpu_up_margin),
+        "cpu_down_margin": float(args.cpu_down_margin),
         "target_cpu_util": float(args.target_cpu_util),
         "min_agent_workers": int(args.min_agent_workers),
         "max_agent_workers": int(args.max_agent_workers),
@@ -860,8 +954,17 @@ def _evaluate_pending_agents(
     ]
 
     by_id = {int(agent["agent_id"]): agent for agent in pending}
+    cycle_index = int(active["cycle_index"])
+    total_planned = int(active.get("games_total_planned", sum(int(a.get("games", 0)) for a in agents)))
+    stats_before = _progress_stats_from_agents(agents)
+    _log(
+        f"[cycle {cycle_index}] start: pending_agents={len(pending)} "
+        f"pending_games={sum(int(a.get('games', 0)) for a in pending)} "
+        f"done={int(stats_before['done_games'])}/{total_planned}"
+    )
 
     agent_workers = max(1, min(int(args.agent_workers), len(payloads)))
+    dynamic_enabled = bool(args.dynamic_cpu_control) and psutil is not None and agent_workers > 1
     if agent_workers == 1:
         for payload in payloads:
             agent_id = int(payload["agent_id"])
@@ -884,39 +987,221 @@ def _evaluate_pending_agents(
                 int(a.get("games", 0)) for a in agents if a.get("status") == "done"
             )
             _save_state(record, state)
+            progress = _progress_stats_from_agents(agents)
+            done_games = int(progress["done_games"])
+            pct = 100.0 * done_games / max(1, total_planned)
+            _log(
+                f"[progress] cycle={cycle_index} cpu=n/a workers=1/1 "
+                f"done={done_games}/{total_planned} ({pct:.1f}%) "
+                f"avg_score={progress['avg_score']:.1f} "
+                f"win_rate={progress['avg_win_rate']:.2%}"
+            )
         return
 
-    with ProcessPoolExecutor(max_workers=agent_workers) as pool:
-        futures = {pool.submit(_evaluate_agent_payload, payload): int(payload["agent_id"]) for payload in payloads}
-        try:
-            for future in as_completed(futures):
-                agent_id = futures[future]
-                agent = by_id[agent_id]
-                try:
-                    result = future.result()
-                    agent["status"] = "done"
-                    agent["result"] = result
-                except Exception as exc:
-                    agent["status"] = "error"
-                    agent["result"] = {
-                        "error": f"{type(exc).__name__}: {exc}",
-                        "meta": {
-                            "cycle_index": int(active["cycle_index"]),
-                            "agent_id": agent_id,
-                            "strategy": str(agent["strategy"]),
-                            "failed_at_utc": _utc_now_iso(),
-                        },
-                    }
+    if not dynamic_enabled:
+        with ProcessPoolExecutor(max_workers=agent_workers) as pool:
+            futures = {pool.submit(_evaluate_agent_payload, payload): int(payload["agent_id"]) for payload in payloads}
+            try:
+                for future in as_completed(futures):
+                    agent_id = futures[future]
+                    agent = by_id[agent_id]
+                    try:
+                        result = future.result()
+                        agent["status"] = "done"
+                        agent["result"] = result
+                    except Exception as exc:
+                        agent["status"] = "error"
+                        agent["result"] = {
+                            "error": f"{type(exc).__name__}: {exc}",
+                            "meta": {
+                                "cycle_index": int(active["cycle_index"]),
+                                "agent_id": agent_id,
+                                "strategy": str(agent["strategy"]),
+                                "failed_at_utc": _utc_now_iso(),
+                            },
+                        }
 
-                active["games_total_finished"] = sum(
-                    int(a.get("games", 0)) for a in agents if a.get("status") == "done"
-                )
+                    active["games_total_finished"] = sum(
+                        int(a.get("games", 0)) for a in agents if a.get("status") == "done"
+                    )
+                    _save_state(record, state)
+                    progress = _progress_stats_from_agents(agents)
+                    done_games = int(progress["done_games"])
+                    pct = 100.0 * done_games / max(1, total_planned)
+                    _log(
+                        f"[progress] cycle={cycle_index} cpu=n/a "
+                        f"workers={agent_workers}/{agent_workers} "
+                        f"done={done_games}/{total_planned} ({pct:.1f}%) "
+                        f"avg_score={progress['avg_score']:.1f} "
+                        f"win_rate={progress['avg_win_rate']:.2%}"
+                    )
+            except KeyboardInterrupt:
+                for future in futures:
+                    future.cancel()
                 _save_state(record, state)
+                raise
+        return
+
+    target_cpu = max(35.0, min(95.0, 100.0 - float(args.cpu_headroom_percent)))
+    up_margin = max(1.0, float(args.cpu_up_margin))
+    down_margin = max(1.0, float(args.cpu_down_margin))
+    adjust_interval = max(0.4, float(args.cpu_adjust_interval_s))
+    min_limit = max(1, min(int(args.min_agent_workers), agent_workers))
+    max_limit = agent_workers
+    current_limit = max(min_limit, min(max_limit, int(math.ceil(max_limit * 0.65))))
+
+    _log(
+        f"[load-control] dynamic=1 target_cpu={target_cpu:.1f}% "
+        f"headroom={100.0 - target_cpu:.1f}% "
+        f"limit_start={current_limit}/{max_limit}"
+    )
+
+    queue = list(payloads)
+    next_index = 0
+    running: dict[Any, dict[str, Any]] = {}
+    last_adjust_ts = time.monotonic()
+    last_report_ts = 0.0
+    last_cpu = _cpu_percent_now()
+    _cpu_percent_now()  # warmup sample for psutil rolling window
+    pool_error: Exception | None = None
+
+    def _submit_until_limit(pool: ProcessPoolExecutor) -> None:
+        nonlocal next_index, pool_error
+        while len(running) < current_limit and next_index < len(queue):
+            payload = queue[next_index]
+            try:
+                fut = pool.submit(_evaluate_agent_payload, payload)
+            except Exception as exc:
+                pool_error = exc
+                break
+            next_index += 1
+            running[fut] = payload
+
+    with ProcessPoolExecutor(max_workers=max_limit) as pool:
+        _submit_until_limit(pool)
+        try:
+            while running or next_index < len(queue):
+                if pool_error is not None:
+                    break
+                completed: set[Any] = set()
+                if running:
+                    done_set, _ = wait(
+                        set(running.keys()),
+                        timeout=max(0.2, adjust_interval * 0.5),
+                        return_when=FIRST_COMPLETED,
+                    )
+                    completed = set(done_set)
+
+                for future in completed:
+                    payload = running.pop(future)
+                    agent_id = int(payload["agent_id"])
+                    agent = by_id[agent_id]
+                    try:
+                        result = future.result()
+                        agent["status"] = "done"
+                        agent["result"] = result
+                    except Exception as exc:
+                        if "BrokenProcessPool" in type(exc).__name__:
+                            pool_error = exc
+                            # Keep pending for sequential fallback.
+                            agent["status"] = "pending"
+                            agent["result"] = None
+                        else:
+                            agent["status"] = "error"
+                            agent["result"] = {
+                                "error": f"{type(exc).__name__}: {exc}",
+                                "meta": {
+                                    "cycle_index": int(active["cycle_index"]),
+                                    "agent_id": agent_id,
+                                    "strategy": str(agent["strategy"]),
+                                    "failed_at_utc": _utc_now_iso(),
+                                },
+                            }
+                    active["games_total_finished"] = sum(
+                        int(a.get("games", 0)) for a in agents if a.get("status") == "done"
+                    )
+                    _save_state(record, state)
+
+                now = time.monotonic()
+                if now - last_adjust_ts >= adjust_interval:
+                    last_cpu = _cpu_percent_now()
+                    next_limit, reason = _adjust_dynamic_limit(
+                        current_limit=current_limit,
+                        min_limit=min_limit,
+                        max_limit=max_limit,
+                        cpu_percent=last_cpu,
+                        target_cpu_percent=target_cpu,
+                        up_margin=up_margin,
+                        down_margin=down_margin,
+                    )
+                    if next_limit != current_limit:
+                        _log(
+                            f"[load-control] cpu={last_cpu:.1f}% "
+                            f"limit {current_limit}->{next_limit} reason={reason}"
+                        )
+                    current_limit = next_limit
+                    last_adjust_ts = now
+
+                _submit_until_limit(pool)
+
+                if completed or (now - last_report_ts >= max(0.8, adjust_interval)):
+                    progress = _progress_stats_from_agents(agents)
+                    done_games = int(progress["done_games"])
+                    pct = 100.0 * done_games / max(1, total_planned)
+                    running_games = sum(int(payload["games"]) for payload in running.values())
+                    queued_games = sum(int(queue[i]["games"]) for i in range(next_index, len(queue)))
+                    _log(
+                        f"[progress] cycle={cycle_index} cpu={last_cpu:.1f}% "
+                        f"workers={len(running)}/{current_limit}/{max_limit} "
+                        f"running_games={running_games} queued_games={queued_games} "
+                        f"done={done_games}/{total_planned} ({pct:.1f}%) "
+                        f"avg_score={progress['avg_score']:.1f} "
+                        f"win_rate={progress['avg_win_rate']:.2%}"
+                    )
+                    last_report_ts = now
         except KeyboardInterrupt:
-            for future in futures:
+            for future in running:
                 future.cancel()
             _save_state(record, state)
             raise
+
+    if pool_error is not None:
+        _log(f"[load-control] pool failed ({type(pool_error).__name__}), switching to sequential fallback.")
+        remaining_payloads = [
+            payload
+            for payload in payloads
+            if by_id[int(payload["agent_id"])].get("status") == "pending"
+        ]
+        for payload in remaining_payloads:
+            agent_id = int(payload["agent_id"])
+            try:
+                result = _evaluate_agent_payload(payload)
+                by_id[agent_id]["status"] = "done"
+                by_id[agent_id]["result"] = result
+            except Exception as exc:
+                by_id[agent_id]["status"] = "error"
+                by_id[agent_id]["result"] = {
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "meta": {
+                        "cycle_index": int(payload["cycle_index"]),
+                        "agent_id": agent_id,
+                        "strategy": str(payload["strategy"]),
+                        "failed_at_utc": _utc_now_iso(),
+                    },
+                }
+            active["games_total_finished"] = sum(
+                int(a.get("games", 0)) for a in agents if a.get("status") == "done"
+            )
+            _save_state(record, state)
+            progress = _progress_stats_from_agents(agents)
+            done_games = int(progress["done_games"])
+            pct = 100.0 * done_games / max(1, total_planned)
+            _log(
+                f"[progress] cycle={cycle_index} cpu=n/a fallback=sequential "
+                f"done={done_games}/{total_planned} ({pct:.1f}%) "
+                f"avg_score={progress['avg_score']:.1f} "
+                f"win_rate={progress['avg_win_rate']:.2%}"
+            )
 
 
 def _collect_cycle_results(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1038,6 +1323,12 @@ def parse_args() -> argparse.Namespace:
         help="Run cautious throughput probe before selecting worker count.",
     )
     parser.add_argument(
+        "--dynamic-cpu-control",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Dynamically adjust active parallel workers to maintain CPU headroom.",
+    )
+    parser.add_argument(
         "--parallel-games",
         type=int,
         default=0,
@@ -1054,6 +1345,30 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=15.0,
         help="CPU reserve percentage for spikes in --auto-parallel mode.",
+    )
+    parser.add_argument(
+        "--cpu-headroom-percent",
+        type=float,
+        default=20.0,
+        help="Target free CPU percentage during dynamic runtime control.",
+    )
+    parser.add_argument(
+        "--cpu-adjust-interval-s",
+        type=float,
+        default=1.5,
+        help="How often to re-evaluate CPU load and adjust active workers.",
+    )
+    parser.add_argument(
+        "--cpu-up-margin",
+        type=float,
+        default=7.0,
+        help="Increase workers when CPU is below target by this margin.",
+    )
+    parser.add_argument(
+        "--cpu-down-margin",
+        type=float,
+        default=3.0,
+        help="Decrease workers when CPU exceeds target by this margin.",
     )
     parser.add_argument(
         "--target-cpu-util",
@@ -1196,9 +1511,9 @@ def main() -> int:
     defaults = get_default_weights()
 
     if args.list_weights:
-        print("Supported Game2048 weights:")
+        _log("Supported Game2048 weights:")
         for key in WEIGHT_KEYS:
-            print(f"  {key}={defaults[key]}")
+            _log(f"  {key}={defaults[key]}")
         return 0
 
     parallel_probe = _resolve_parallelism(args)
@@ -1206,7 +1521,7 @@ def main() -> int:
     try:
         cli_overrides = _parse_weight_overrides(list(args.weight))
     except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr, flush=True)
         return 2
 
     base_bounds = _weight_bounds()
@@ -1214,7 +1529,7 @@ def main() -> int:
     state = _load_state(args.record, reset=bool(args.reset), bounds=base_bounds, config=config)
     if _maybe_drop_active_cycle(state, bool(args.force_replan_active_cycle)):
         _save_state(args.record, state)
-        print("[info] dropped unfinished active cycle and will re-plan with current settings.")
+        _log("[info] dropped unfinished active cycle and will re-plan with current settings.")
 
     current_bounds = _bounds_from_state(state.get("current_bounds"), base_bounds)
 
@@ -1246,7 +1561,7 @@ def main() -> int:
 
     run_benchmark = _load_benchmark_runner()
     if bool(args.auto_parallel) and isinstance(parallel_probe, dict):
-        print(
+        _log(
             "[parallel] "
             f"auto_parallel=1 auto_probe={1 if bool(args.auto_probe) else 0} "
             f"agent_workers={args.agent_workers} benchmark_workers={args.benchmark_workers} "
@@ -1256,21 +1571,21 @@ def main() -> int:
         probe = parallel_probe.get("probe")
         if isinstance(probe, dict):
             if "error" in probe:
-                print(f"[parallel-probe] fallback: {probe['error']}")
+                _log(f"[parallel-probe] fallback: {probe['error']}")
             else:
                 best = int(probe.get("best_workers", 1))
                 rec = int(probe.get("recommended_workers", best))
                 best_tp = float(probe.get("best_throughput_games_per_s", 0.0))
                 samples = probe.get("samples")
                 sample_count = len(samples) if isinstance(samples, list) else 0
-                print(
+                _log(
                     "[parallel-probe] "
                     f"samples={sample_count} best_workers={best} "
                     f"recommended_workers={rec} "
                     f"best_throughput={best_tp:.2f} games/s"
                 )
     else:
-        print(
+        _log(
             "[parallel] "
             f"auto_parallel={1 if bool(args.auto_parallel) else 0} "
             f"agent_workers={args.agent_workers} "
@@ -1316,7 +1631,7 @@ def main() -> int:
             )
             _save_state(args.record, state)
             active_cycle = state["active_cycle"]
-            print(
+            _log(
                 f"[cycle {cycle_index}] planned agents={len(active_cycle.get('agents', []))} "
                 f"games={active_cycle.get('games_total_planned', 0)}"
             )
@@ -1327,7 +1642,7 @@ def main() -> int:
         if not cycle_results:
             state["status"] = "stopped_error"
             _save_state(args.record, state)
-            print("No successful agent results in current cycle. Stopping.", file=sys.stderr)
+            print("No successful agent results in current cycle. Stopping.", file=sys.stderr, flush=True)
             return 1
 
         cycle_index = int(state["active_cycle"]["cycle_index"])
@@ -1397,7 +1712,7 @@ def main() -> int:
         state["active_cycle"] = None
         _save_state(args.record, state)
 
-        print(
+        _log(
             f"[cycle {cycle_index}] avg_win={cycle_avg_win:.2%} "
             f"cycle_best={float(cycle_best['summary']['win_rate_2048']):.2%} "
             f"champion_obj={float(state['best']['objective']):.2f}"
@@ -1424,7 +1739,7 @@ def main() -> int:
 
             validation_win = float(validation["summary"]["win_rate_2048"])
             _save_state(args.record, state)
-            print(
+            _log(
                 f"[validation] cycle={cycle_index} games={args.final_validation_games} "
                 f"win_rate={validation_win:.2%} target={float(args.target_win_rate):.2%}"
             )
@@ -1439,7 +1754,7 @@ def main() -> int:
                     "current_bounds": state["current_bounds"],
                 }
                 _save_state(args.record, state)
-                print(
+                _log(
                     f"[done] target reached with {validation_win:.2%} over "
                     f"{args.final_validation_games} games."
                 )
@@ -1448,11 +1763,11 @@ def main() -> int:
     if state.get("status") != "completed":
         state["status"] = "stopped_max_cycles"
         _save_state(args.record, state)
-        print("[done] max cycles reached without hitting target win-rate.")
-        print(f"state file: {args.record}")
+        _log("[done] max cycles reached without hitting target win-rate.")
+        _log(f"state file: {args.record}")
         if isinstance(state.get("best"), dict):
             best = state["best"]
-            print(f"best objective: {float(best.get('objective', 0.0)):.2f}")
+            _log(f"best objective: {float(best.get('objective', 0.0)):.2f}")
     return 0
 
 

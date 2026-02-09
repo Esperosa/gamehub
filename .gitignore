@@ -26,6 +26,7 @@ test2.txt
 benchmarks/game2048*.json
 benchmarks/game2048*.pdf
 benchmarks/sudoku_ui_dialog_*.pdf
+benchmarks/tuner_*.log
 
 # Editor/OS
 .vscode/
