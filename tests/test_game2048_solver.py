@@ -173,6 +173,41 @@ class Game2048SolverTests(unittest.TestCase):
         score_b = float(evaluate_grid_numba(board_b, GRADIENT_WEIGHTS, only_mono))
         self.assertAlmostEqual(score_a, score_b, places=6)
 
+    def test_gradient_weights_are_applied_in_evaluation(self) -> None:
+        only_gradient = build_weight_vector(
+            {
+                "gradient": 1.0,
+                "corner_bonus": 0.0,
+                "corner_distance_penalty": 0.0,
+                "empty_cells": 0.0,
+                "monotonicity": 0.0,
+                "smoothness": 0.0,
+                "merge": 0.0,
+                "near_2048": 0.0,
+                "left_bias": 0.0,
+                "up_bias": 0.0,
+                "right_penalty": 0.0,
+                "down_penalty": 0.0,
+                "corner_break_penalty": 0.0,
+                "move_score_scale": 0.0,
+                "terminal_penalty": 1.0,
+            }
+        )
+        board = np.array(
+            [
+                [512, 0, 0, 2],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [4, 0, 0, 16],
+            ],
+            dtype=np.int64,
+        )
+        reversed_gradient = np.flip(GRADIENT_WEIGHTS)
+
+        score_default = float(evaluate_grid_numba(board, GRADIENT_WEIGHTS, only_gradient))
+        score_reversed = float(evaluate_grid_numba(board, reversed_gradient, only_gradient))
+        self.assertNotAlmostEqual(score_default, score_reversed, places=6)
+
     def test_chance_sampling_is_deterministic_for_same_board(self) -> None:
         grid = [
             [2, 4, 8, 16],

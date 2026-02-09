@@ -9,7 +9,7 @@ Design goals:
 
 from __future__ import annotations
 
-import math
+import time
 from enum import Enum
 from typing import Mapping, Optional
 
@@ -103,6 +103,8 @@ DEFAULT_WEIGHT_VECTOR = np.array(
 # Bitboard constants.
 _MAX_EXP = 15
 _TT_MAX_ENTRIES_DEFAULT = 120000
+_CHANCE_FULL_ENUM_EMPTY_THRESHOLD = 6
+_GRADIENT_CACHE_MAX = 8
 
 # Precomputed row lookup tables (16-bit row state -> moved row / gain).
 _ROW_LEFT: list[int] = [0] * 65536
@@ -110,6 +112,7 @@ _ROW_RIGHT: list[int] = [0] * 65536
 _ROW_LEFT_GAIN: list[int] = [0] * 65536
 _ROW_RIGHT_GAIN: list[int] = [0] * 65536
 _ROW_EMPTY: list[int] = [0] * 65536
+_ROW_EMPTY_MASK: list[int] = [0] * 65536
 _ROW_SMOOTH: list[float] = [0.0] * 65536
 _ROW_MERGE: list[float] = [0.0] * 65536
 _ROW_MONO: list[float] = [0.0] * 65536
@@ -125,6 +128,7 @@ _ROW_GRADIENT: tuple[list[float], list[float], list[float], list[float]] = (
     [0.0] * 65536,
     [0.0] * 65536,
 )
+_ROW_GRADIENT_CACHE: dict[tuple[float, ...], tuple[list[float], list[float], list[float], list[float]]] = {}
 _TABLES_READY = False
 
 # Compatibility map for public wrappers.
@@ -220,6 +224,54 @@ def _slide_row_left_16(row: int) -> tuple[int, int]:
     return out, gain
 
 
+def _normalize_gradient_flat(gradient_weights: np.ndarray) -> tuple[float, ...]:
+    arr = np.asarray(gradient_weights, dtype=np.float64).reshape(-1)
+    if arr.size != 16:
+        raise ValueError("gradient_weights must contain exactly 16 values.")
+    return tuple(float(v) for v in arr)
+
+
+def _build_row_gradient_table(
+    flat_gradient: tuple[float, ...],
+    out: Optional[tuple[list[float], list[float], list[float], list[float]]] = None,
+) -> tuple[list[float], list[float], list[float], list[float]]:
+    table = out or (
+        [0.0] * 65536,
+        [0.0] * 65536,
+        [0.0] * 65536,
+        [0.0] * 65536,
+    )
+    t0, t1, t2, t3 = table
+    for row in range(65536):
+        a = row & 0xF
+        b = (row >> 4) & 0xF
+        c = (row >> 8) & 0xF
+        d = (row >> 12) & 0xF
+        t0[row] = float(a) * flat_gradient[0] + float(b) * flat_gradient[1] + float(c) * flat_gradient[2] + float(d) * flat_gradient[3]
+        t1[row] = float(a) * flat_gradient[4] + float(b) * flat_gradient[5] + float(c) * flat_gradient[6] + float(d) * flat_gradient[7]
+        t2[row] = float(a) * flat_gradient[8] + float(b) * flat_gradient[9] + float(c) * flat_gradient[10] + float(d) * flat_gradient[11]
+        t3[row] = float(a) * flat_gradient[12] + float(b) * flat_gradient[13] + float(c) * flat_gradient[14] + float(d) * flat_gradient[15]
+    return table
+
+
+def _get_row_gradient_table(flat_gradient: tuple[float, ...]) -> tuple[list[float], list[float], list[float], list[float]]:
+    cached = _ROW_GRADIENT_CACHE.get(flat_gradient)
+    if cached is not None:
+        return cached
+
+    if flat_gradient == _FLAT_GRADIENT:
+        table = _build_row_gradient_table(flat_gradient, _ROW_GRADIENT)
+    else:
+        table = _build_row_gradient_table(flat_gradient)
+    _ROW_GRADIENT_CACHE[flat_gradient] = table
+
+    if len(_ROW_GRADIENT_CACHE) > _GRADIENT_CACHE_MAX:
+        keys = [k for k in _ROW_GRADIENT_CACHE.keys() if k != _FLAT_GRADIENT]
+        while len(_ROW_GRADIENT_CACHE) > _GRADIENT_CACHE_MAX and keys:
+            _ROW_GRADIENT_CACHE.pop(keys.pop(0), None)
+    return table
+
+
 def _ensure_tables() -> None:
     global _TABLES_READY
     if _TABLES_READY:
@@ -229,6 +281,12 @@ def _ensure_tables() -> None:
         exps = [row & 0xF, (row >> 4) & 0xF, (row >> 8) & 0xF, (row >> 12) & 0xF]
 
         _ROW_EMPTY[row] = int(exps[0] == 0) + int(exps[1] == 0) + int(exps[2] == 0) + int(exps[3] == 0)
+        _ROW_EMPTY_MASK[row] = (
+            (1 if exps[0] == 0 else 0)
+            | ((1 if exps[1] == 0 else 0) << 1)
+            | ((1 if exps[2] == 0 else 0) << 2)
+            | ((1 if exps[3] == 0 else 0) << 3)
+        )
         _ROW_MONO[row] = _line_monotonicity_penalty_nonzero(exps[0], exps[1], exps[2], exps[3])
 
         smooth = 0.0
@@ -272,31 +330,6 @@ def _ensure_tables() -> None:
         _ROW_ADJ_512[row] = adj_512
         _ROW_ADJ_1024[row] = adj_1024
 
-        _ROW_GRADIENT[0][row] = (
-            float(exps[0]) * _FLAT_GRADIENT[0]
-            + float(exps[1]) * _FLAT_GRADIENT[1]
-            + float(exps[2]) * _FLAT_GRADIENT[2]
-            + float(exps[3]) * _FLAT_GRADIENT[3]
-        )
-        _ROW_GRADIENT[1][row] = (
-            float(exps[0]) * _FLAT_GRADIENT[4]
-            + float(exps[1]) * _FLAT_GRADIENT[5]
-            + float(exps[2]) * _FLAT_GRADIENT[6]
-            + float(exps[3]) * _FLAT_GRADIENT[7]
-        )
-        _ROW_GRADIENT[2][row] = (
-            float(exps[0]) * _FLAT_GRADIENT[8]
-            + float(exps[1]) * _FLAT_GRADIENT[9]
-            + float(exps[2]) * _FLAT_GRADIENT[10]
-            + float(exps[3]) * _FLAT_GRADIENT[11]
-        )
-        _ROW_GRADIENT[3][row] = (
-            float(exps[0]) * _FLAT_GRADIENT[12]
-            + float(exps[1]) * _FLAT_GRADIENT[13]
-            + float(exps[2]) * _FLAT_GRADIENT[14]
-            + float(exps[3]) * _FLAT_GRADIENT[15]
-        )
-
         left_row, left_gain = _slide_row_left_16(row)
         _ROW_LEFT[row] = left_row
         _ROW_LEFT_GAIN[row] = left_gain
@@ -307,6 +340,7 @@ def _ensure_tables() -> None:
         _ROW_RIGHT[row] = right_row
         _ROW_RIGHT_GAIN[row] = right_gain
 
+    _get_row_gradient_table(_FLAT_GRADIENT)
     _TABLES_READY = True
 
 
@@ -388,6 +422,54 @@ def _count_empty_board(board: int) -> int:
     return empty
 
 
+def _empty_mask_board(board: int) -> int:
+    r0 = board & 0xFFFF
+    r1 = (board >> 16) & 0xFFFF
+    r2 = (board >> 32) & 0xFFFF
+    r3 = (board >> 48) & 0xFFFF
+    return (
+        _ROW_EMPTY_MASK[r0]
+        | (_ROW_EMPTY_MASK[r1] << 4)
+        | (_ROW_EMPTY_MASK[r2] << 8)
+        | (_ROW_EMPTY_MASK[r3] << 12)
+    )
+
+
+def _pick_bit_by_rank(mask: int, rank: int) -> int:
+    m = mask
+    r = rank
+    while m:
+        lsb = m & -m
+        if r == 0:
+            return lsb
+        r -= 1
+        m ^= lsb
+    return 0
+
+
+def _sample_empty_mask(mask: int, sample_count: int, seed: int) -> int:
+    total = mask.bit_count()
+    if sample_count >= total:
+        return mask
+
+    out_mask = 0
+    remaining_mask = mask
+    remaining = total
+    state = (seed | 1) & 0xFFFFFFFFFFFFFFFF
+    for _ in range(sample_count):
+        state ^= (state << 13) & 0xFFFFFFFFFFFFFFFF
+        state ^= (state >> 7) & 0xFFFFFFFFFFFFFFFF
+        state ^= (state << 17) & 0xFFFFFFFFFFFFFFFF
+        pick_rank = int(state % max(remaining, 1))
+        chosen = _pick_bit_by_rank(remaining_mask, pick_rank)
+        if chosen == 0:
+            break
+        out_mask |= chosen
+        remaining_mask ^= chosen
+        remaining -= 1
+    return out_mask
+
+
 def _max_exp_and_idx(board: int) -> tuple[int, int]:
     max_exp = 0
     max_idx = 0
@@ -397,6 +479,10 @@ def _max_exp_and_idx(board: int) -> tuple[int, int]:
             max_exp = exp
             max_idx = idx
     return max_exp, max_idx
+
+
+def _pack_tt_key(board: int, ply: int, node_type: int) -> int:
+    return (board << 7) | ((ply & 0x3F) << 1) | (node_type & 0x1)
 
 
 def log2_fast(x: int) -> float:
@@ -593,7 +679,11 @@ def _near_2048_potential_fast(board: int, rows: tuple[int, int, int, int], cols:
     return score * safety
 
 
-def _evaluate_board(board: int, weights: np.ndarray, flat_gradient: tuple[float, ...]) -> float:
+def _evaluate_board(
+    board: int,
+    weights: np.ndarray,
+    row_gradient: tuple[list[float], list[float], list[float], list[float]],
+) -> float:
     r0 = board & 0xFFFF
     r1 = (board >> 16) & 0xFFFF
     r2 = (board >> 32) & 0xFFFF
@@ -603,10 +693,10 @@ def _evaluate_board(board: int, weights: np.ndarray, flat_gradient: tuple[float,
     # Row-table derived stats.
     empty_count = _ROW_EMPTY[r0] + _ROW_EMPTY[r1] + _ROW_EMPTY[r2] + _ROW_EMPTY[r3]
     gradient_score = (
-        _ROW_GRADIENT[0][r0]
-        + _ROW_GRADIENT[1][r1]
-        + _ROW_GRADIENT[2][r2]
-        + _ROW_GRADIENT[3][r3]
+        row_gradient[0][r0]
+        + row_gradient[1][r1]
+        + row_gradient[2][r2]
+        + row_gradient[3][r3]
     )
     smoothness_penalty = _ROW_SMOOTH[r0] + _ROW_SMOOTH[r1] + _ROW_SMOOTH[r2] + _ROW_SMOOTH[r3]
     merge_score = _ROW_MERGE[r0] + _ROW_MERGE[r1] + _ROW_MERGE[r2] + _ROW_MERGE[r3]
@@ -668,11 +758,13 @@ def near_2048_potential_numba(grid: np.ndarray) -> float:
 
 def evaluate_grid_numba(grid: np.ndarray, gradient_weights: np.ndarray, weights: np.ndarray) -> float:
     """Compatibility wrapper using bitboard evaluation backend."""
+    _ensure_tables()
     np_grid = np.asarray(grid, dtype=np.int64)
     board = _grid_to_bitboard(np_grid)
-    flat_gradient = tuple(float(v) for v in np.asarray(gradient_weights, dtype=np.float64).reshape(16))
+    flat_gradient = _normalize_gradient_flat(np.asarray(gradient_weights, dtype=np.float64))
+    row_gradient = _get_row_gradient_table(flat_gradient)
     weight_vec = _coerce_weight_vector(weights)
-    return _evaluate_board(board, weight_vec, flat_gradient)
+    return _evaluate_board(board, weight_vec, row_gradient)
 
 
 def _board_sampling_seed(board: int, ply: int) -> int:
@@ -685,26 +777,6 @@ def _board_sampling_seed(board: int, ply: int) -> int:
     x = (x * 0xC4CEB9FE1A85EC53) & 0xFFFFFFFFFFFFFFFF
     x ^= (x >> 33)
     return int(x)
-
-
-def _sample_positions_deterministic(positions: list[int], sample_count: int, seed: int) -> list[int]:
-    if sample_count >= len(positions):
-        return positions
-
-    n = len(positions)
-    start = seed % n
-    step = ((seed >> 8) % n) + 1
-    while math.gcd(step, n) != 1:
-        step += 1
-        if step > n:
-            step = 1
-
-    sampled: list[int] = []
-    idx = start
-    for _ in range(sample_count):
-        sampled.append(positions[idx])
-        idx = (idx + step) % n
-    return sampled
 
 
 def _direction_bias_board(board: int, direction: int, weights: np.ndarray) -> float:
@@ -748,29 +820,59 @@ class _BitboardSearcher:
         *,
         weight_vector: np.ndarray,
         chance_branch_limit: int,
-        gradient_flat: tuple[float, ...],
-        tt: Optional[dict[tuple[int, int, int], float]] = None,
+        row_gradient: tuple[list[float], list[float], list[float], list[float]],
+        tt: Optional[dict[int, float]] = None,
         tt_max_entries: int = _TT_MAX_ENTRIES_DEFAULT,
+        deadline_s: Optional[float] = None,
     ) -> None:
         self.weights = weight_vector
         self.chance_branch_limit = max(1, min(16, int(chance_branch_limit)))
-        self.gradient_flat = gradient_flat
+        self.row_gradient = row_gradient
         self.tt = tt if tt is not None else {}
         self.tt_max_entries = max(0, int(tt_max_entries))
+        self.deadline_s = deadline_s
+        self._time_exceeded = False
+        self._time_probe_counter = 0
+        self.nodes_player = 0
+        self.nodes_chance = 0
+        self.tt_hits_player = 0
+        self.tt_hits_chance = 0
 
     def _maybe_trim_tt(self) -> None:
         if self.tt_max_entries <= 0:
             return
         if len(self.tt) > self.tt_max_entries:
-            self.tt.clear()
+            keep_target = max(1, int(self.tt_max_entries * 0.8))
+            remove_n = max(1, len(self.tt) - keep_target)
+            keys_to_remove: list[int] = []
+            for key in self.tt:
+                keys_to_remove.append(key)
+                if len(keys_to_remove) >= remove_n:
+                    break
+            for key in keys_to_remove:
+                self.tt.pop(key, None)
+
+    def _should_stop(self) -> bool:
+        if self.deadline_s is None:
+            return False
+        self._time_probe_counter += 1
+        if (self._time_probe_counter & 0x3F) != 0:
+            return self._time_exceeded
+        if time.perf_counter() >= self.deadline_s:
+            self._time_exceeded = True
+        return self._time_exceeded
 
     def _player(self, board: int, ply: int) -> float:
+        self.nodes_player += 1
+        if self._should_stop():
+            return _evaluate_board(board, self.weights, self.row_gradient)
         if ply <= 0:
-            return _evaluate_board(board, self.weights, self.gradient_flat)
+            return _evaluate_board(board, self.weights, self.row_gradient)
 
-        key = (board, ply, 1)
+        key = _pack_tt_key(board, ply, 1)
         cached = self.tt.get(key)
         if cached is not None:
+            self.tt_hits_player += 1
             return cached
 
         best_score = -1e18
@@ -791,34 +893,51 @@ class _BitboardSearcher:
                 best_score = val
 
         if not found_move:
-            best_score = _evaluate_board(board, self.weights, self.gradient_flat) - self.weights[W_TERMINAL_PENALTY]
+            best_score = _evaluate_board(board, self.weights, self.row_gradient) - self.weights[W_TERMINAL_PENALTY]
 
         self.tt[key] = best_score
         return best_score
 
     def _chance(self, board: int, ply: int) -> float:
-        key = (board, ply, 0)
+        self.nodes_chance += 1
+        if self._should_stop():
+            return _evaluate_board(board, self.weights, self.row_gradient)
+
+        key = _pack_tt_key(board, ply, 0)
         cached = self.tt.get(key)
         if cached is not None:
+            self.tt_hits_chance += 1
             return cached
 
-        empties = [idx for idx in range(16) if _get_cell_exp(board, idx) == 0]
-        if not empties:
+        empty_mask = _empty_mask_board(board)
+        empty_count = empty_mask.bit_count()
+        if empty_count == 0:
             value = self._player(board, ply)
             self.tt[key] = value
             return value
 
-        sample_count = min(len(empties), self.chance_branch_limit)
-        seed = _board_sampling_seed(board, ply)
-        sampled = _sample_positions_deterministic(empties, sample_count, seed)
+        if empty_count <= _CHANCE_FULL_ENUM_EMPTY_THRESHOLD:
+            sample_mask = empty_mask
+            sample_count = empty_count
+        else:
+            sample_count = min(empty_count, self.chance_branch_limit)
+            seed = _board_sampling_seed(board, ply)
+            sample_mask = _sample_empty_mask(empty_mask, sample_count, seed)
+            if sample_mask == 0:
+                sample_mask = empty_mask
+                sample_count = empty_count
 
         total = 0.0
-        for idx in sampled:
+        m = sample_mask
+        while m:
+            lsb = m & -m
+            idx = lsb.bit_length() - 1
             shift = idx * 4
             b2 = board | (1 << shift)
             b4 = board | (2 << shift)
             total += 0.9 * self._player(b2, ply)
             total += 0.1 * self._player(b4, ply)
+            m ^= lsb
 
         value = total / float(sample_count)
         self.tt[key] = value
@@ -826,6 +945,8 @@ class _BitboardSearcher:
 
     def best_move_int(self, board: int, ply: int) -> int:
         self._maybe_trim_tt()
+        if self._should_stop():
+            return -1
 
         best_score = -1e18
         best_move = -1
@@ -878,11 +999,12 @@ def get_best_move_numba(
     np_grid = np.asarray(grid, dtype=np.int64)
     board = _grid_to_bitboard(np_grid)
     weight_vec = _coerce_weight_vector(weights)
-    flat_gradient = tuple(float(v) for v in np.asarray(gradient_weights, dtype=np.float64).reshape(16))
+    flat_gradient = _normalize_gradient_flat(np.asarray(gradient_weights, dtype=np.float64))
+    row_gradient = _get_row_gradient_table(flat_gradient)
     searcher = _BitboardSearcher(
         weight_vector=weight_vec,
         chance_branch_limit=max_chance_branches,
-        gradient_flat=flat_gradient,
+        row_gradient=row_gradient,
         tt={},
         tt_max_entries=0,
     )
@@ -912,6 +1034,9 @@ class Solver2048:
     - weights: optional overrides for evaluation weights
     - chance_branch_limit: cap sampled empty cells at chance nodes
     - tt_max_entries: max transposition-table entries before reset
+    - iterative_deepening: progressively search depths until depth/budget limit
+    - move_time_budget_ms: normal-mode think budget used by iterative deepening
+    - fast_time_budget_ms: fast-mode think budget used by iterative deepening
     """
 
     def __init__(
@@ -921,13 +1046,46 @@ class Solver2048:
         weights: Optional[Mapping[str, float]] = None,
         chance_branch_limit: int = 8,
         tt_max_entries: int = _TT_MAX_ENTRIES_DEFAULT,
+        iterative_deepening: bool = True,
+        move_time_budget_ms: float = 24.0,
+        fast_time_budget_ms: float = 10.0,
     ) -> None:
         self.depth = max(1, int(depth))
         self.fast_mode = fast_mode
         self.chance_branch_limit = max(1, min(16, int(chance_branch_limit)))
         self.tt_max_entries = max(0, int(tt_max_entries))
+        self.iterative_deepening = bool(iterative_deepening)
+        self.move_time_budget_ms = max(0.0, float(move_time_budget_ms))
+        self.fast_time_budget_ms = max(0.0, float(fast_time_budget_ms))
         self._weight_vector = build_weight_vector(weights)
-        self._tt: dict[tuple[int, int, int], float] = {}
+        self._tt: dict[int, float] = {}
+        self._search_stats: dict[str, float] = {
+            "searches": 0.0,
+            "player_nodes": 0.0,
+            "chance_nodes": 0.0,
+            "tt_hits_player": 0.0,
+            "tt_hits_chance": 0.0,
+            "timeouts": 0.0,
+            "max_depth_reached": 0.0,
+        }
+
+    def pull_search_stats(self, reset: bool = False) -> dict[str, float]:
+        snapshot = {k: float(v) for k, v in self._search_stats.items()}
+        player_nodes = snapshot["player_nodes"]
+        chance_nodes = snapshot["chance_nodes"]
+        tt_hits_player = snapshot["tt_hits_player"]
+        tt_hits_chance = snapshot["tt_hits_chance"]
+        snapshot["tt_hit_rate_player"] = tt_hits_player / player_nodes if player_nodes > 0 else 0.0
+        snapshot["tt_hit_rate_chance"] = tt_hits_chance / chance_nodes if chance_nodes > 0 else 0.0
+        snapshot["tt_hit_rate_overall"] = (
+            (tt_hits_player + tt_hits_chance) / (player_nodes + chance_nodes)
+            if (player_nodes + chance_nodes) > 0
+            else 0.0
+        )
+        if reset:
+            for key in self._search_stats:
+                self._search_stats[key] = 0.0
+        return snapshot
 
     def get_move(self, grid) -> Optional[Direction]:
         global _jit_warmed_up
@@ -958,14 +1116,48 @@ class Solver2048:
             elif max_exp >= 9 and empty_count >= 5:  # >= 512
                 effective_depth = min(effective_depth + 1, 6)
 
+        row_gradient = _get_row_gradient_table(_FLAT_GRADIENT)
+        budget_ms = self.fast_time_budget_ms if self.fast_mode else self.move_time_budget_ms
+        if not self.fast_mode:
+            if empty_count <= 3:
+                budget_ms *= 1.5
+            elif empty_count <= 5:
+                budget_ms *= 1.2
+            if max_exp >= 10:
+                budget_ms *= 1.15
+        deadline_s = (time.perf_counter() + (budget_ms / 1000.0)) if budget_ms > 0 else None
+
         searcher = _BitboardSearcher(
             weight_vector=self._weight_vector,
             chance_branch_limit=self.chance_branch_limit,
-            gradient_flat=_FLAT_GRADIENT,
+            row_gradient=row_gradient,
             tt=self._tt,
             tt_max_entries=self.tt_max_entries,
+            deadline_s=deadline_s,
         )
-        move_int = searcher.best_move_int(board, effective_depth)
+        reached_depth = 0
+        if self.iterative_deepening:
+            move_int = -1
+            for depth in range(1, effective_depth + 1):
+                candidate = searcher.best_move_int(board, depth)
+                if candidate != -1:
+                    move_int = candidate
+                    reached_depth = depth
+                if searcher._time_exceeded:
+                    break
+        else:
+            move_int = searcher.best_move_int(board, effective_depth)
+            reached_depth = effective_depth
+
+        self._search_stats["searches"] += 1.0
+        self._search_stats["player_nodes"] += float(searcher.nodes_player)
+        self._search_stats["chance_nodes"] += float(searcher.nodes_chance)
+        self._search_stats["tt_hits_player"] += float(searcher.tt_hits_player)
+        self._search_stats["tt_hits_chance"] += float(searcher.tt_hits_chance)
+        self._search_stats["max_depth_reached"] = max(self._search_stats["max_depth_reached"], float(reached_depth))
+        if searcher._time_exceeded:
+            self._search_stats["timeouts"] += 1.0
+
         if move_int == -1:
             return None
         return _INT_TO_DIR.get(move_int)

@@ -97,13 +97,23 @@ def _score_summary(summary: dict[str, Any]) -> float:
     avg_best_tile = total_tile / max(total_count, 1.0)
 
     think_penalty = max(0.0, think_ms - 45.0) * 180.0
+    search = summary.get("solver_search", {})
+    nodes_per_s = float(search.get("nodes_per_second", 0.0))
+    tt_hit_rate = float(search.get("tt_hit_rate_overall", 0.0))
+    timeouts = float(search.get("timeouts", 0.0))
+    throughput_bonus = min(nodes_per_s, 2_500_000.0) * 0.015
+    cache_bonus = tt_hit_rate * 6500.0
+    timeout_penalty = timeouts * 1500.0
 
     return (
         win_rate * 320000.0
         + score_avg * 5.5
         + score_p90 * 1.8
         + avg_best_tile * 20.0
+        + throughput_bonus
+        + cache_bonus
         - think_penalty
+        - timeout_penalty
     )
 
 
@@ -343,6 +353,9 @@ def _snapshot_config(args: argparse.Namespace) -> dict[str, Any]:
         "agents": int(args.agents),
         "agent_workers": int(args.agent_workers),
         "benchmark_workers": int(args.benchmark_workers),
+        "iterative_deepening": not bool(args.no_iterative_deepening),
+        "move_time_budget_ms": float(args.move_time_budget_ms),
+        "fast_time_budget_ms": float(args.fast_time_budget_ms),
         "depth": int(args.depth),
         "chance_branch_limit": int(args.chance_branch_limit),
         "max_moves": int(args.max_moves),
@@ -544,6 +557,9 @@ def _evaluate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         max_seconds=max(0.001, float(payload["max_seconds"])),
         workers=max(1, int(payload["benchmark_workers"])),
         weights=weights,
+        iterative_deepening=bool(payload["iterative_deepening"]),
+        move_time_budget_ms=max(0.0, float(payload["move_time_budget_ms"])),
+        fast_time_budget_ms=max(0.0, float(payload["fast_time_budget_ms"])),
     )
     summary = result["summary"]
     objective = _score_summary(summary)
@@ -597,6 +613,9 @@ def _evaluate_pending_agents(
             "max_moves": int(args.max_moves),
             "max_seconds": float(args.max_seconds),
             "benchmark_workers": int(args.benchmark_workers),
+            "iterative_deepening": not bool(args.no_iterative_deepening),
+            "move_time_budget_ms": float(args.move_time_budget_ms),
+            "fast_time_budget_ms": float(args.fast_time_budget_ms),
         }
         for agent in pending
     ]
@@ -699,6 +718,9 @@ def _run_validation(
         max_seconds=max(0.001, float(args.max_seconds)),
         workers=max(1, int(args.benchmark_workers)),
         weights=weights,
+        iterative_deepening=not bool(args.no_iterative_deepening),
+        move_time_budget_ms=max(0.0, float(args.move_time_budget_ms)),
+        fast_time_budget_ms=max(0.0, float(args.fast_time_budget_ms)),
     )
     summary = report["summary"]
     return {
@@ -769,6 +791,23 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=1,
         help="Workers inside each benchmark call (keep 1 when agent-workers > 1).",
+    )
+    parser.add_argument(
+        "--no-iterative-deepening",
+        action="store_true",
+        help="Disable iterative deepening in solver benchmark calls.",
+    )
+    parser.add_argument(
+        "--move-time-budget-ms",
+        type=float,
+        default=24.0,
+        help="Per-move search budget in normal mode.",
+    )
+    parser.add_argument(
+        "--fast-time-budget-ms",
+        type=float,
+        default=10.0,
+        help="Per-move search budget in fast mode.",
     )
 
     parser.add_argument("--depth", type=int, default=3, help="Player-ply depth.")

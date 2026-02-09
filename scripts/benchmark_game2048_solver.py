@@ -52,6 +52,7 @@ def _simulate_game_with_solver(
 ) -> dict[str, Any]:
     random.seed(seed)
     game = create_game(4)
+    solver.pull_search_stats(reset=True)
 
     start = time.perf_counter()
     think_s = 0.0
@@ -85,6 +86,7 @@ def _simulate_game_with_solver(
             break
 
     elapsed = time.perf_counter() - start
+    search_stats = solver.pull_search_stats(reset=True)
     return {
         "seed": seed,
         "won_2048": bool(game.best_tile >= 2048),
@@ -94,6 +96,7 @@ def _simulate_game_with_solver(
         "elapsed_s": round(elapsed, 6),
         "think_s": round(think_s, 6),
         "termination": termination,
+        "search_stats": search_stats,
     }
 
 
@@ -103,6 +106,9 @@ def _simulate_game_in_process(payload: dict[str, Any]) -> dict[str, Any]:
         fast_mode=bool(payload["fast_mode"]),
         weights=payload["weights"],
         chance_branch_limit=int(payload["chance_branch_limit"]),
+        iterative_deepening=bool(payload["iterative_deepening"]),
+        move_time_budget_ms=float(payload["move_time_budget_ms"]),
+        fast_time_budget_ms=float(payload["fast_time_budget_ms"]),
     )
     return _simulate_game_with_solver(
         seed=int(payload["seed"]),
@@ -123,6 +129,9 @@ def run_benchmark(
     max_seconds: float,
     workers: int,
     weights: Mapping[str, float],
+    iterative_deepening: bool = True,
+    move_time_budget_ms: float = 24.0,
+    fast_time_budget_ms: float = 10.0,
 ) -> dict[str, Any]:
     start = time.perf_counter()
 
@@ -135,6 +144,9 @@ def run_benchmark(
             fast_mode=fast_mode,
             weights=weights,
             chance_branch_limit=chance_branch_limit,
+            iterative_deepening=iterative_deepening,
+            move_time_budget_ms=move_time_budget_ms,
+            fast_time_budget_ms=fast_time_budget_ms,
         )
         for seed in seeds:
             results.append(
@@ -155,6 +167,9 @@ def run_benchmark(
                 "max_moves": max_moves,
                 "max_seconds": max_seconds,
                 "weights": dict(weights),
+                "iterative_deepening": iterative_deepening,
+                "move_time_budget_ms": move_time_budget_ms,
+                "fast_time_budget_ms": fast_time_budget_ms,
             }
             for seed in seeds
         ]
@@ -168,6 +183,18 @@ def run_benchmark(
     scores = [int(r["score"]) for r in results]
     moves = [int(r["moves"]) for r in results]
     think_s = [float(r["think_s"]) for r in results]
+    search_stats_rows = [dict(r.get("search_stats", {})) for r in results]
+
+    total_searches = sum(float(s.get("searches", 0.0)) for s in search_stats_rows)
+    total_player_nodes = sum(float(s.get("player_nodes", 0.0)) for s in search_stats_rows)
+    total_chance_nodes = sum(float(s.get("chance_nodes", 0.0)) for s in search_stats_rows)
+    total_tt_hits_player = sum(float(s.get("tt_hits_player", 0.0)) for s in search_stats_rows)
+    total_tt_hits_chance = sum(float(s.get("tt_hits_chance", 0.0)) for s in search_stats_rows)
+    total_timeouts = sum(float(s.get("timeouts", 0.0)) for s in search_stats_rows)
+    total_nodes = total_player_nodes + total_chance_nodes
+    total_tt_hits = total_tt_hits_player + total_tt_hits_chance
+    total_think_s = sum(think_s)
+    nodes_per_s = total_nodes / total_think_s if total_think_s > 0 else 0.0
 
     best_tile_distribution = Counter(str(r["best_tile"]) for r in results)
     termination_distribution = Counter(str(r["termination"]) for r in results)
@@ -182,6 +209,9 @@ def run_benchmark(
         "depth": depth,
         "fast_mode": fast_mode,
         "chance_branch_limit": chance_branch_limit,
+        "iterative_deepening": bool(iterative_deepening),
+        "move_time_budget_ms": float(move_time_budget_ms),
+        "fast_time_budget_ms": float(fast_time_budget_ms),
         "max_moves_per_game": max_moves,
         "max_seconds_per_game": max_seconds,
         "wall_time_s": round(elapsed, 3),
@@ -207,6 +237,23 @@ def run_benchmark(
             "avg_think_ms_per_move": round(avg_think_ms, 4),
             "avg_game_think_s": round(sum(think_s) / max(len(think_s), 1), 4),
         },
+        "solver_search": {
+            "total_searches": int(total_searches),
+            "total_player_nodes": int(total_player_nodes),
+            "total_chance_nodes": int(total_chance_nodes),
+            "total_nodes": int(total_nodes),
+            "nodes_per_second": round(nodes_per_s, 2),
+            "tt_hits_player": int(total_tt_hits_player),
+            "tt_hits_chance": int(total_tt_hits_chance),
+            "tt_hit_rate_player": round(total_tt_hits_player / total_player_nodes, 4)
+            if total_player_nodes > 0
+            else 0.0,
+            "tt_hit_rate_chance": round(total_tt_hits_chance / total_chance_nodes, 4)
+            if total_chance_nodes > 0
+            else 0.0,
+            "tt_hit_rate_overall": round(total_tt_hits / total_nodes, 4) if total_nodes > 0 else 0.0,
+            "timeouts": int(total_timeouts),
+        },
         "weights": {k: float(v) for k, v in weights.items()},
     }
 
@@ -224,6 +271,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed-start", type=int, default=2026020800, help="Base seed for runs.")
     parser.add_argument("--depth", type=int, default=3, help="Player-ply search depth.")
     parser.add_argument("--fast-mode", action="store_true", help="Enable low-latency depth caps.")
+    parser.add_argument(
+        "--no-iterative-deepening",
+        action="store_true",
+        help="Disable iterative deepening and run single-depth search.",
+    )
+    parser.add_argument(
+        "--move-time-budget-ms",
+        type=float,
+        default=24.0,
+        help="Per-move search budget for normal mode when iterative deepening is enabled.",
+    )
+    parser.add_argument(
+        "--fast-time-budget-ms",
+        type=float,
+        default=10.0,
+        help="Per-move search budget for fast mode when iterative deepening is enabled.",
+    )
     parser.add_argument(
         "--chance-branch-limit",
         type=int,
@@ -290,19 +354,25 @@ def main() -> int:
         max_seconds=max(1e-3, float(args.max_seconds)),
         workers=max(1, args.workers),
         weights=weights,
+        iterative_deepening=not bool(args.no_iterative_deepening),
+        move_time_budget_ms=max(0.0, float(args.move_time_budget_ms)),
+        fast_time_budget_ms=max(0.0, float(args.fast_time_budget_ms)),
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
     summary = result["summary"]
+    search = summary.get("solver_search", {})
     print(f"[ok] report: {args.output}")
     print(
         "[summary] "
         f"games={summary['games']} depth={summary['depth']} fast_mode={summary['fast_mode']} "
         f"win_rate_2048={summary['win_rate_2048']:.2%} "
         f"avg_score={summary['score']['avg']} "
-        f"avg_think_ms={summary['solver_time']['avg_think_ms_per_move']}"
+        f"avg_think_ms={summary['solver_time']['avg_think_ms_per_move']} "
+        f"nodes_per_s={search.get('nodes_per_second', 0.0)} "
+        f"tt_hit={search.get('tt_hit_rate_overall', 0.0):.2%}"
     )
     return 0
 
