@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import math
+import os
 import random
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -353,6 +354,14 @@ def _snapshot_config(args: argparse.Namespace) -> dict[str, Any]:
         "agents": int(args.agents),
         "agent_workers": int(args.agent_workers),
         "benchmark_workers": int(args.benchmark_workers),
+        "auto_parallel": bool(args.auto_parallel),
+        "parallel_games": int(args.parallel_games),
+        "cpu_reserve": int(args.cpu_reserve),
+        "target_cpu_util": float(args.target_cpu_util),
+        "min_agent_workers": int(args.min_agent_workers),
+        "max_agent_workers": int(args.max_agent_workers),
+        "auto_agents": bool(args.auto_agents),
+        "agent_queue_factor": int(args.agent_queue_factor),
         "iterative_deepening": not bool(args.no_iterative_deepening),
         "move_time_budget_ms": float(args.move_time_budget_ms),
         "fast_time_budget_ms": float(args.fast_time_budget_ms),
@@ -369,7 +378,51 @@ def _snapshot_config(args: argparse.Namespace) -> dict[str, Any]:
         "top_keep": int(args.top_keep),
         "history_limit": int(args.history_limit),
         "validate_every_cycles": int(args.validate_every_cycles),
+        "cpu_count": int(os.cpu_count() or 0),
     }
+
+
+def _resolve_parallelism(args: argparse.Namespace) -> None:
+    args.agents = max(1, int(args.agents))
+    args.agent_workers = max(1, int(args.agent_workers))
+    args.benchmark_workers = max(1, int(args.benchmark_workers))
+
+    if not bool(args.auto_parallel):
+        return
+
+    cpu_count = max(1, int(os.cpu_count() or 1))
+    reserve = max(0, int(args.cpu_reserve))
+    usable = max(1, cpu_count - reserve)
+    target_util = max(0.2, min(1.0, float(args.target_cpu_util)))
+    target_workers = max(1, int(round(usable * target_util)))
+
+    desired_parallel = int(args.parallel_games)
+    if desired_parallel > 0:
+        target_workers = min(target_workers, desired_parallel)
+
+    max_agent_workers = int(args.max_agent_workers)
+    if max_agent_workers > 0:
+        target_workers = min(target_workers, max_agent_workers)
+
+    min_agent_workers = max(1, int(args.min_agent_workers))
+    target_workers = max(min_agent_workers, target_workers)
+    args.agent_workers = target_workers
+
+    # Keep one benchmark worker per agent by default to avoid nested oversubscription.
+    args.benchmark_workers = 1
+
+    if bool(args.auto_agents):
+        queue_factor = max(1, int(args.agent_queue_factor))
+        args.agents = max(args.agents, args.agent_workers * queue_factor)
+
+
+def _maybe_drop_active_cycle(state: dict[str, Any], force_replan: bool) -> bool:
+    if not force_replan:
+        return False
+    if not isinstance(state.get("active_cycle"), dict):
+        return False
+    state["active_cycle"] = None
+    return True
 
 
 def _select_elite(entries: list[dict[str, Any]], fraction: float) -> list[dict[str, Any]]:
@@ -787,6 +840,57 @@ def parse_args() -> argparse.Namespace:
         help="Parallel worker processes for agent evaluations.",
     )
     parser.add_argument(
+        "--auto-parallel",
+        action="store_true",
+        help="Auto-tune worker concurrency from CPU count.",
+    )
+    parser.add_argument(
+        "--parallel-games",
+        type=int,
+        default=0,
+        help="Target max parallel games when --auto-parallel is enabled (0 = auto by CPU).",
+    )
+    parser.add_argument(
+        "--cpu-reserve",
+        type=int,
+        default=1,
+        help="How many logical CPUs to keep free in --auto-parallel mode.",
+    )
+    parser.add_argument(
+        "--target-cpu-util",
+        type=float,
+        default=0.92,
+        help="Target CPU utilization fraction for --auto-parallel (0..1).",
+    )
+    parser.add_argument(
+        "--min-agent-workers",
+        type=int,
+        default=1,
+        help="Minimum agent workers in --auto-parallel mode.",
+    )
+    parser.add_argument(
+        "--max-agent-workers",
+        type=int,
+        default=0,
+        help="Optional hard cap for agent workers in --auto-parallel mode (0 = no cap).",
+    )
+    parser.add_argument(
+        "--auto-agents",
+        action="store_true",
+        help="Increase agent count automatically to keep a queue for workers.",
+    )
+    parser.add_argument(
+        "--agent-queue-factor",
+        type=int,
+        default=2,
+        help="Queue multiplier for --auto-agents (agents ~= workers * factor).",
+    )
+    parser.add_argument(
+        "--force-replan-active-cycle",
+        action="store_true",
+        help="Drop unfinished active cycle and build a new one with current settings.",
+    )
+    parser.add_argument(
         "--benchmark-workers",
         type=int,
         default=1,
@@ -854,12 +958,20 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    _resolve_parallelism(args)
     defaults = get_default_weights()
 
     if args.list_weights:
         print("Supported Game2048 weights:")
         for key in WEIGHT_KEYS:
             print(f"  {key}={defaults[key]}")
+        if bool(args.auto_parallel):
+            cpu_count = int(os.cpu_count() or 1)
+            print(
+                f"\nAuto parallel resolved: agents={args.agents} "
+                f"agent_workers={args.agent_workers} benchmark_workers={args.benchmark_workers} "
+                f"(cpu_count={cpu_count})"
+            )
         return 0
 
     try:
@@ -871,6 +983,9 @@ def main() -> int:
     base_bounds = _weight_bounds()
     config = _snapshot_config(args)
     state = _load_state(args.record, reset=bool(args.reset), bounds=base_bounds, config=config)
+    if _maybe_drop_active_cycle(state, bool(args.force_replan_active_cycle)):
+        _save_state(args.record, state)
+        print("[info] dropped unfinished active cycle and will re-plan with current settings.")
 
     current_bounds = _bounds_from_state(state.get("current_bounds"), base_bounds)
 
@@ -901,6 +1016,13 @@ def main() -> int:
         _save_state(args.record, state)
 
     run_benchmark = _load_benchmark_runner()
+    print(
+        "[parallel] "
+        f"agents={args.agents} "
+        f"agent_workers={args.agent_workers} "
+        f"benchmark_workers={args.benchmark_workers} "
+        f"auto_parallel={bool(args.auto_parallel)}"
+    )
 
     max_cycles = max(1, int(args.max_cycles))
     while int(state.get("cycle_index", 0)) < max_cycles:
