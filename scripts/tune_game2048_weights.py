@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import importlib
 import json
 import math
 import os
 import random
 import sys
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from games.game2048.solver import WEIGHT_KEYS, get_default_weights
+from games.game2048.solver import WEIGHT_KEYS, get_default_weights  # noqa: E402
+
+try:
+    import psutil  # type: ignore[import-not-found]
+except Exception:
+    psutil = None
 
 _SCHEMA_VERSION = 2
 
@@ -25,14 +31,151 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _logical_cpu_count() -> int:
+    return max(1, int(os.cpu_count() or 1))
+
+
+def _physical_cpu_count() -> int:
+    if psutil is None:
+        return max(1, _logical_cpu_count() // 2)
+    try:
+        return max(1, int(psutil.cpu_count(logical=False) or 1))
+    except Exception:
+        return max(1, _logical_cpu_count() // 2)
+
+
+def _effective_reserve_cores(cpu_count: int, reserve_cores: int, reserve_percent: float) -> int:
+    reserve_from_percent = int(math.ceil(cpu_count * max(0.0, reserve_percent) / 100.0))
+    reserve = max(int(reserve_cores), reserve_from_percent)
+    return min(max(0, reserve), max(0, cpu_count - 1))
+
+
+def _probe_worker_candidates(max_workers: int, limit: int) -> list[int]:
+    if max_workers <= 1:
+        return [1]
+    max_samples = max(2, int(limit))
+    candidates = [1]
+    while candidates[-1] < max_workers and len(candidates) < max_samples:
+        prev = candidates[-1]
+        if prev < 4:
+            nxt = prev + 1
+        else:
+            nxt = int(math.ceil(prev * 1.5))
+        if nxt <= prev:
+            nxt = prev + 1
+        if nxt > max_workers:
+            nxt = max_workers
+        candidates.append(nxt)
+    if candidates[-1] != max_workers:
+        candidates.append(max_workers)
+    # Keep insertion order while removing duplicates.
+    return list(dict.fromkeys(candidates))
+
+
+def _probe_parallel_workers(
+    *,
+    args: argparse.Namespace,
+    run_benchmark: Any,
+    max_workers: int,
+) -> dict[str, Any]:
+    defaults = get_default_weights()
+    candidates = _probe_worker_candidates(max_workers=max_workers, limit=int(args.probe_candidates_limit))
+
+    min_games = max(1, int(args.probe_min_games))
+    max_games = max(min_games, int(args.probe_max_games))
+    games_per_worker = max(1, int(args.probe_games_per_worker))
+    min_gain = max(0.0, float(args.probe_min_gain))
+    near_best_tolerance = max(0.0, min(0.30, float(args.probe_tolerance)))
+
+    rows: list[dict[str, Any]] = []
+    best_workers = 1
+    best_throughput = -1.0
+    prev_throughput: float | None = None
+    low_gain_streak = 0
+
+    for workers in candidates:
+        games = max(min_games, workers * games_per_worker)
+        games = min(games, max_games)
+        seed_start = int(args.seed_start) + 83_000_000 + workers * 97
+
+        t0 = time.perf_counter()
+        report = run_benchmark(
+            games=games,
+            seed_start=seed_start,
+            depth=max(1, min(int(args.depth), 2)),
+            fast_mode=True,
+            chance_branch_limit=max(1, min(12, int(args.chance_branch_limit))),
+            max_moves=max(32, min(int(args.max_moves), 700)),
+            max_seconds=max(0.3, min(float(args.max_seconds), 8.0)),
+            workers=workers,
+            weights=defaults,
+            iterative_deepening=True,
+            move_time_budget_ms=max(1.0, min(float(args.move_time_budget_ms), 8.0)),
+            fast_time_budget_ms=max(1.0, min(float(args.fast_time_budget_ms), 5.0)),
+        )
+        wall = max(time.perf_counter() - t0, 1e-6)
+        summary = dict(report.get("summary", {}))
+        throughput = float(games) / wall
+
+        if throughput > best_throughput:
+            best_throughput = throughput
+            best_workers = workers
+
+        rel_gain = 0.0
+        if prev_throughput is not None and prev_throughput > 1e-9:
+            rel_gain = (throughput - prev_throughput) / prev_throughput
+            if rel_gain < min_gain:
+                low_gain_streak += 1
+            else:
+                low_gain_streak = 0
+        prev_throughput = throughput
+
+        rows.append(
+            {
+                "workers": int(workers),
+                "games": int(games),
+                "wall_time_s": round(wall, 4),
+                "throughput_games_per_s": round(throughput, 4),
+                "win_rate_2048": float(summary.get("win_rate_2048", 0.0)),
+                "avg_think_ms_per_move": float(summary.get("solver_time", {}).get("avg_think_ms_per_move", 0.0)),
+                "nodes_per_second": float(summary.get("solver_search", {}).get("nodes_per_second", 0.0)),
+                "relative_gain_vs_prev": round(rel_gain, 4),
+            }
+        )
+
+        # Stop after two consecutive low-gain steps to stay cautious and quick.
+        if low_gain_streak >= 2 and workers >= 4:
+            break
+
+    if best_throughput <= 0:
+        return {
+            "recommended_workers": 1,
+            "best_workers": 1,
+            "best_throughput_games_per_s": 0.0,
+            "samples": rows,
+            "used_fallback": True,
+        }
+
+    near_best_threshold = best_throughput * (1.0 - near_best_tolerance)
+    recommended_workers = best_workers
+    for row in rows:
+        if float(row["throughput_games_per_s"]) >= near_best_threshold:
+            recommended_workers = int(row["workers"])
+            break
+
+    return {
+        "recommended_workers": int(recommended_workers),
+        "best_workers": int(best_workers),
+        "best_throughput_games_per_s": round(best_throughput, 4),
+        "near_best_tolerance": float(near_best_tolerance),
+        "samples": rows,
+        "used_fallback": False,
+    }
+
+
 def _load_benchmark_runner() -> Any:
     """Load benchmark_game2048_solver.py dynamically and return run_benchmark callable."""
-    module_path = ROOT / "scripts" / "benchmark_game2048_solver.py"
-    spec = importlib.util.spec_from_file_location("game2048_benchmark_runtime", module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot load benchmark module: {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = importlib.import_module("scripts.benchmark_game2048_solver")
     run_benchmark = getattr(module, "run_benchmark", None)
     if not callable(run_benchmark):
         raise RuntimeError("benchmark_game2048_solver.py does not expose callable run_benchmark().")
@@ -345,7 +488,7 @@ def _save_state(path: Path, state: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def _snapshot_config(args: argparse.Namespace) -> dict[str, Any]:
+def _snapshot_config(args: argparse.Namespace, parallel_probe: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "cycle_games": int(args.cycle_games),
         "final_validation_games": int(args.final_validation_games),
@@ -355,11 +498,19 @@ def _snapshot_config(args: argparse.Namespace) -> dict[str, Any]:
         "agent_workers": int(args.agent_workers),
         "benchmark_workers": int(args.benchmark_workers),
         "auto_parallel": bool(args.auto_parallel),
+        "auto_probe": bool(args.auto_probe),
         "parallel_games": int(args.parallel_games),
         "cpu_reserve": int(args.cpu_reserve),
+        "cpu_reserve_percent": float(args.cpu_reserve_percent),
         "target_cpu_util": float(args.target_cpu_util),
         "min_agent_workers": int(args.min_agent_workers),
         "max_agent_workers": int(args.max_agent_workers),
+        "probe_candidates_limit": int(args.probe_candidates_limit),
+        "probe_games_per_worker": int(args.probe_games_per_worker),
+        "probe_min_games": int(args.probe_min_games),
+        "probe_max_games": int(args.probe_max_games),
+        "probe_min_gain": float(args.probe_min_gain),
+        "probe_tolerance": float(args.probe_tolerance),
         "auto_agents": bool(args.auto_agents),
         "agent_queue_factor": int(args.agent_queue_factor),
         "iterative_deepening": not bool(args.no_iterative_deepening),
@@ -378,23 +529,29 @@ def _snapshot_config(args: argparse.Namespace) -> dict[str, Any]:
         "top_keep": int(args.top_keep),
         "history_limit": int(args.history_limit),
         "validate_every_cycles": int(args.validate_every_cycles),
-        "cpu_count": int(os.cpu_count() or 0),
+        "cpu_count_logical": _logical_cpu_count(),
+        "cpu_count_physical": _physical_cpu_count(),
+        "parallel_probe": parallel_probe,
     }
 
 
-def _resolve_parallelism(args: argparse.Namespace) -> None:
+def _resolve_parallelism(args: argparse.Namespace) -> dict[str, Any] | None:
     args.agents = max(1, int(args.agents))
     args.agent_workers = max(1, int(args.agent_workers))
     args.benchmark_workers = max(1, int(args.benchmark_workers))
 
     if not bool(args.auto_parallel):
-        return
+        return None
 
-    cpu_count = max(1, int(os.cpu_count() or 1))
-    reserve = max(0, int(args.cpu_reserve))
+    cpu_count = _logical_cpu_count()
+    reserve = _effective_reserve_cores(
+        cpu_count=cpu_count,
+        reserve_cores=max(0, int(args.cpu_reserve)),
+        reserve_percent=max(0.0, float(args.cpu_reserve_percent)),
+    )
     usable = max(1, cpu_count - reserve)
-    target_util = max(0.2, min(1.0, float(args.target_cpu_util)))
-    target_workers = max(1, int(round(usable * target_util)))
+    target_util = max(0.20, min(1.0, float(args.target_cpu_util)))
+    target_workers = max(1, int(math.floor(usable * target_util)))
 
     desired_parallel = int(args.parallel_games)
     if desired_parallel > 0:
@@ -406,7 +563,24 @@ def _resolve_parallelism(args: argparse.Namespace) -> None:
 
     min_agent_workers = max(1, int(args.min_agent_workers))
     target_workers = max(min_agent_workers, target_workers)
-    args.agent_workers = target_workers
+
+    probe_report: dict[str, Any] | None = None
+    if bool(args.auto_probe) and target_workers > 1:
+        try:
+            run_benchmark = _load_benchmark_runner()
+            probe_report = _probe_parallel_workers(
+                args=args,
+                run_benchmark=run_benchmark,
+                max_workers=target_workers,
+            )
+            target_workers = max(min_agent_workers, int(probe_report["recommended_workers"]))
+        except Exception as exc:
+            probe_report = {
+                "error": f"{type(exc).__name__}: {exc}",
+                "used_fallback": True,
+            }
+
+    args.agent_workers = max(1, int(target_workers))
 
     # Keep one benchmark worker per agent by default to avoid nested oversubscription.
     args.benchmark_workers = 1
@@ -414,6 +588,18 @@ def _resolve_parallelism(args: argparse.Namespace) -> None:
     if bool(args.auto_agents):
         queue_factor = max(1, int(args.agent_queue_factor))
         args.agents = max(args.agents, args.agent_workers * queue_factor)
+
+    return {
+        "cpu_count_logical": int(cpu_count),
+        "cpu_count_physical": int(_physical_cpu_count()),
+        "cpu_reserve_cores_effective": int(reserve),
+        "cpu_reserve_percent": float(args.cpu_reserve_percent),
+        "target_cpu_util": float(target_util),
+        "usable_worker_budget": int(usable),
+        "resolved_agent_workers": int(args.agent_workers),
+        "resolved_benchmark_workers": int(args.benchmark_workers),
+        "probe": probe_report,
+    }
 
 
 def _maybe_drop_active_cycle(state: dict[str, Any], force_replan: bool) -> bool:
@@ -841,8 +1027,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--auto-parallel",
-        action="store_true",
-        help="Auto-tune worker concurrency from CPU count.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Auto-tune worker concurrency from HW profile (enabled by default).",
+    )
+    parser.add_argument(
+        "--auto-probe",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run cautious throughput probe before selecting worker count.",
     )
     parser.add_argument(
         "--parallel-games",
@@ -853,14 +1046,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cpu-reserve",
         type=int,
-        default=1,
-        help="How many logical CPUs to keep free in --auto-parallel mode.",
+        default=0,
+        help="Absolute extra logical CPUs to keep free in --auto-parallel mode.",
+    )
+    parser.add_argument(
+        "--cpu-reserve-percent",
+        type=float,
+        default=15.0,
+        help="CPU reserve percentage for spikes in --auto-parallel mode.",
     )
     parser.add_argument(
         "--target-cpu-util",
         type=float,
-        default=0.92,
-        help="Target CPU utilization fraction for --auto-parallel (0..1).",
+        default=1.0,
+        help="Utilization fraction applied after reserve is subtracted (0..1).",
     )
     parser.add_argument(
         "--min-agent-workers",
@@ -873,6 +1072,42 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Optional hard cap for agent workers in --auto-parallel mode (0 = no cap).",
+    )
+    parser.add_argument(
+        "--probe-candidates-limit",
+        type=int,
+        default=8,
+        help="Max worker-count samples during auto probe.",
+    )
+    parser.add_argument(
+        "--probe-games-per-worker",
+        type=int,
+        default=2,
+        help="Probe games per tested worker count.",
+    )
+    parser.add_argument(
+        "--probe-min-games",
+        type=int,
+        default=4,
+        help="Minimum games in a single probe run.",
+    )
+    parser.add_argument(
+        "--probe-max-games",
+        type=int,
+        default=24,
+        help="Maximum games in a single probe run.",
+    )
+    parser.add_argument(
+        "--probe-min-gain",
+        type=float,
+        default=0.06,
+        help="Minimum relative throughput gain to keep increasing workers.",
+    )
+    parser.add_argument(
+        "--probe-tolerance",
+        type=float,
+        default=0.04,
+        help="Choose the smallest workers within this throughput distance from best.",
     )
     parser.add_argument(
         "--auto-agents",
@@ -958,21 +1193,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    _resolve_parallelism(args)
     defaults = get_default_weights()
 
     if args.list_weights:
         print("Supported Game2048 weights:")
         for key in WEIGHT_KEYS:
             print(f"  {key}={defaults[key]}")
-        if bool(args.auto_parallel):
-            cpu_count = int(os.cpu_count() or 1)
-            print(
-                f"\nAuto parallel resolved: agents={args.agents} "
-                f"agent_workers={args.agent_workers} benchmark_workers={args.benchmark_workers} "
-                f"(cpu_count={cpu_count})"
-            )
         return 0
+
+    parallel_probe = _resolve_parallelism(args)
 
     try:
         cli_overrides = _parse_weight_overrides(list(args.weight))
@@ -981,7 +1210,7 @@ def main() -> int:
         return 2
 
     base_bounds = _weight_bounds()
-    config = _snapshot_config(args)
+    config = _snapshot_config(args, parallel_probe)
     state = _load_state(args.record, reset=bool(args.reset), bounds=base_bounds, config=config)
     if _maybe_drop_active_cycle(state, bool(args.force_replan_active_cycle)):
         _save_state(args.record, state)
@@ -1016,13 +1245,37 @@ def main() -> int:
         _save_state(args.record, state)
 
     run_benchmark = _load_benchmark_runner()
-    print(
-        "[parallel] "
-        f"agents={args.agents} "
-        f"agent_workers={args.agent_workers} "
-        f"benchmark_workers={args.benchmark_workers} "
-        f"auto_parallel={bool(args.auto_parallel)}"
-    )
+    if bool(args.auto_parallel) and isinstance(parallel_probe, dict):
+        print(
+            "[parallel] "
+            f"auto_parallel=1 auto_probe={1 if bool(args.auto_probe) else 0} "
+            f"agent_workers={args.agent_workers} benchmark_workers={args.benchmark_workers} "
+            f"reserve={parallel_probe.get('cpu_reserve_cores_effective', '?')} "
+            f"of {parallel_probe.get('cpu_count_logical', '?')} logical CPUs"
+        )
+        probe = parallel_probe.get("probe")
+        if isinstance(probe, dict):
+            if "error" in probe:
+                print(f"[parallel-probe] fallback: {probe['error']}")
+            else:
+                best = int(probe.get("best_workers", 1))
+                rec = int(probe.get("recommended_workers", best))
+                best_tp = float(probe.get("best_throughput_games_per_s", 0.0))
+                samples = probe.get("samples")
+                sample_count = len(samples) if isinstance(samples, list) else 0
+                print(
+                    "[parallel-probe] "
+                    f"samples={sample_count} best_workers={best} "
+                    f"recommended_workers={rec} "
+                    f"best_throughput={best_tp:.2f} games/s"
+                )
+    else:
+        print(
+            "[parallel] "
+            f"auto_parallel={1 if bool(args.auto_parallel) else 0} "
+            f"agent_workers={args.agent_workers} "
+            f"benchmark_workers={args.benchmark_workers}"
+        )
 
     max_cycles = max(1, int(args.max_cycles))
     while int(state.get("cycle_index", 0)) < max_cycles:
