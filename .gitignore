@@ -22,6 +22,11 @@ nuitka-crash-report.xml
 test_result.txt
 test2.txt
 
+# Local benchmark artifacts (generated during tuning/profiling)
+benchmarks/game2048*.json
+benchmarks/game2048*.pdf
+benchmarks/sudoku_ui_dialog_*.pdf
+
 # Editor/OS
 .vscode/
 .idea/
