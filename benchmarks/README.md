@@ -18,6 +18,11 @@ Utility benchmark scripts:
   - Supports repeatable seed ranges and `--weight key=value` overrides.
   - Example:
     - `python scripts/benchmark_game2048_solver.py --games 50 --depth 3 --chance-branch-limit 8 --weight empty_cells=2600 --weight monotonicity=1900 --output benchmarks/game2048_solver_benchmark_50.json`
+- `scripts/tune_game2048_weights.py`
+  - Iterativní ladič vah s perzistentním stavem (`benchmarks/game2048_weight_tuner_state.json`).
+  - Každé spuštění načte předchozí best váhy, pokračuje v hledání a průběžně ukládá historii.
+  - Příklad (spustí 1000 evalů):  
+    `python scripts/tune_game2048_weights.py --iterations 1000 --games-per-eval 10 --workers 4 --record benchmarks/game2048_weight_tuner_state.json`
 
 If newer benchmark runs are added, include:
 

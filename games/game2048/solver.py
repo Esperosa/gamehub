@@ -58,13 +58,14 @@ DIR_DOWN = 1
 DIR_LEFT = 2
 DIR_RIGHT = 3
 
-# Gradient matrix for snake-like board ordering (top-left anchored)
+# Normalized gradient matrix for snake-like board ordering (top-left anchored).
+# Keeping values near 0..1 avoids one heuristic term dominating by scale only.
 GRADIENT_WEIGHTS = np.array(
     [
-        [32768.0, 16384.0, 8192.0, 4096.0],
-        [256.0, 512.0, 1024.0, 2048.0],
-        [128.0, 64.0, 32.0, 16.0],
-        [1.0, 2.0, 4.0, 8.0],
+        [1.0, 0.5, 0.25, 0.125],
+        [0.0078125, 0.015625, 0.03125, 0.0625],
+        [0.00390625, 0.001953125, 0.0009765625, 0.00048828125],
+        [0.000030517578125, 0.00006103515625, 0.0001220703125, 0.000244140625],
     ],
     dtype=np.float64,
 )
@@ -109,7 +110,7 @@ _WEIGHT_INDEX = {key: idx for idx, key in enumerate(WEIGHT_KEYS)}
 
 DEFAULT_WEIGHT_VECTOR = np.array(
     [
-        0.85,  # gradient
+        4800.0,  # gradient
         9000.0,  # corner_bonus
         4200.0,  # corner_distance_penalty
         2600.0,  # empty_cells
@@ -364,6 +365,74 @@ def log2_fast(x):
 
 
 @_jit
+def _line_monotonicity_penalty_nonzero(v0, v1, v2, v3):
+    """Monotonicity penalty over non-zero values only (compressed line)."""
+    c0 = 0.0
+    c1 = 0.0
+    c2 = 0.0
+    c3 = 0.0
+    count = 0
+
+    if v0 > 0:
+        c0 = log2_fast(v0)
+        count = 1
+    if v1 > 0:
+        if count == 0:
+            c0 = log2_fast(v1)
+        elif count == 1:
+            c1 = log2_fast(v1)
+        elif count == 2:
+            c2 = log2_fast(v1)
+        else:
+            c3 = log2_fast(v1)
+        count += 1
+    if v2 > 0:
+        if count == 0:
+            c0 = log2_fast(v2)
+        elif count == 1:
+            c1 = log2_fast(v2)
+        elif count == 2:
+            c2 = log2_fast(v2)
+        else:
+            c3 = log2_fast(v2)
+        count += 1
+    if v3 > 0:
+        if count == 0:
+            c0 = log2_fast(v3)
+        elif count == 1:
+            c1 = log2_fast(v3)
+        elif count == 2:
+            c2 = log2_fast(v3)
+        else:
+            c3 = log2_fast(v3)
+        count += 1
+
+    if count <= 1:
+        return 0.0
+
+    inc = 0.0
+    dec = 0.0
+
+    if count >= 2:
+        if c0 > c1:
+            inc += c0 - c1
+        else:
+            dec += c1 - c0
+    if count >= 3:
+        if c1 > c2:
+            inc += c1 - c2
+        else:
+            dec += c2 - c1
+    if count >= 4:
+        if c2 > c3:
+            inc += c2 - c3
+        else:
+            dec += c3 - c2
+
+    return inc if inc < dec else dec
+
+
+@_jit
 def _global_monotonicity_penalty(grid):
     """
     Monotonicity penalty across all rows/cols.
@@ -372,31 +441,23 @@ def _global_monotonicity_penalty(grid):
     """
     penalty = 0.0
 
-    # Rows
+    # Rows (compressed, zeros skipped)
     for r in range(4):
-        inc = 0.0
-        dec = 0.0
-        for c in range(3):
-            a = log2_fast(grid[r, c])
-            b = log2_fast(grid[r, c + 1])
-            if a > b:
-                inc += a - b
-            else:
-                dec += b - a
-        penalty += inc if inc < dec else dec
+        penalty += _line_monotonicity_penalty_nonzero(
+            grid[r, 0],
+            grid[r, 1],
+            grid[r, 2],
+            grid[r, 3],
+        )
 
-    # Columns
+    # Columns (compressed, zeros skipped)
     for c in range(4):
-        inc = 0.0
-        dec = 0.0
-        for r in range(3):
-            a = log2_fast(grid[r, c])
-            b = log2_fast(grid[r + 1, c])
-            if a > b:
-                inc += a - b
-            else:
-                dec += b - a
-        penalty += inc if inc < dec else dec
+        penalty += _line_monotonicity_penalty_nonzero(
+            grid[0, c],
+            grid[1, c],
+            grid[2, c],
+            grid[3, c],
+        )
 
     return penalty
 
@@ -504,6 +565,35 @@ def _collect_empty_cells(grid, rows, cols):
 
 
 @_jit
+def _gcd_int(a, b):
+    """Greatest common divisor helper for deterministic sampling strides."""
+    x = a
+    y = b
+    while y != 0:
+        x, y = y, x % y
+    return x
+
+
+@_jit
+def _board_sampling_seed(grid, ply):
+    """
+    Deterministic board hash used for pseudo-random chance-node sampling.
+
+    Keeps runs reproducible while avoiding scan-order bias.
+    """
+    seed = 2166136261  # FNV offset basis (32-bit)
+    idx = 1
+    for r in range(4):
+        for c in range(4):
+            seed ^= (grid[r, c] + idx * 17)
+            seed = (seed * 16777619) & 0xFFFFFFFF
+            idx += 1
+    seed ^= ((ply + 1) * 374761393) & 0xFFFFFFFF
+    seed = (seed * 668265263) & 0xFFFFFFFF
+    return seed
+
+
+@_jit
 def expectimax_player_numba(grid, ply, gradient_weights, weights, max_chance_branches):
     """
     Player node: maximize over legal moves.
@@ -560,9 +650,17 @@ def expectimax_chance_numba(grid, ply, gradient_weights, weights, max_chance_bra
     if max_chance_branches > 0 and sample_count > max_chance_branches:
         sample_count = max_chance_branches
 
+    seed = _board_sampling_seed(grid, ply)
+    start = seed % empty_count
+    step = ((seed >> 8) % empty_count) + 1
+    while _gcd_int(step, empty_count) != 1:
+        step += 1
+        if step > empty_count:
+            step = 1
+
     total = 0.0
     for i in range(sample_count):
-        idx = (i * empty_count) // sample_count
+        idx = (start + i * step) % empty_count
         r = empty_rows[idx]
         c = empty_cols[idx]
 
@@ -672,7 +770,7 @@ class Solver2048:
 
     def __init__(
         self,
-        depth: int = 2,
+        depth: int = 3,
         fast_mode: bool = False,
         weights: Optional[Mapping[str, float]] = None,
         chance_branch_limit: int = 8,
@@ -747,7 +845,7 @@ def get_empty_cells(grid):
 
 def get_best_move(
     grid,
-    depth: int = 2,
+    depth: int = 3,
     weights: Optional[Mapping[str, float]] = None,
     chance_branch_limit: int = 8,
 ) -> Optional[Direction]:

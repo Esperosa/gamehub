@@ -222,7 +222,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--games", type=int, default=100, help="Number of simulated games.")
     parser.add_argument("--seed-start", type=int, default=2026020800, help="Base seed for runs.")
-    parser.add_argument("--depth", type=int, default=2, help="Player-ply search depth.")
+    parser.add_argument("--depth", type=int, default=3, help="Player-ply search depth.")
     parser.add_argument("--fast-mode", action="store_true", help="Enable low-latency depth caps.")
     parser.add_argument(
         "--chance-branch-limit",

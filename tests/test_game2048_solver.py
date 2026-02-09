@@ -7,7 +7,9 @@ import numpy as np
 from games.game2048.engine import Direction as EngineDirection
 from games.game2048.engine import Game2048
 from games.game2048.solver import (
+    GRADIENT_WEIGHTS,
     build_weight_vector,
+    evaluate_grid_numba,
     get_best_move,
     get_default_weights,
     near_2048_potential_numba,
@@ -125,6 +127,63 @@ class Game2048SolverTests(unittest.TestCase):
         self.assertIsNotNone(move)
         assert move is not None
         self._apply_move(grid, move.value)
+
+    def test_monotonicity_ignores_zero_gaps(self) -> None:
+        only_mono = build_weight_vector(
+            {
+                "gradient": 0.0,
+                "corner_bonus": 0.0,
+                "corner_distance_penalty": 0.0,
+                "empty_cells": 0.0,
+                "monotonicity": 1.0,
+                "smoothness": 0.0,
+                "merge": 0.0,
+                "near_2048": 0.0,
+                "left_bias": 0.0,
+                "up_bias": 0.0,
+                "right_penalty": 0.0,
+                "down_penalty": 0.0,
+                "corner_break_penalty": 0.0,
+                "move_score_scale": 0.0,
+                "terminal_penalty": 1.0,
+            }
+        )
+
+        # Both boards have same non-zero order in first row: 8 > 4 > 2.
+        board_a = np.array(
+            [
+                [8, 4, 2, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+            ],
+            dtype=np.int64,
+        )
+        board_b = np.array(
+            [
+                [8, 0, 4, 2],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+            ],
+            dtype=np.int64,
+        )
+
+        score_a = float(evaluate_grid_numba(board_a, GRADIENT_WEIGHTS, only_mono))
+        score_b = float(evaluate_grid_numba(board_b, GRADIENT_WEIGHTS, only_mono))
+        self.assertAlmostEqual(score_a, score_b, places=6)
+
+    def test_chance_sampling_is_deterministic_for_same_board(self) -> None:
+        grid = [
+            [2, 4, 8, 16],
+            [32, 64, 128, 0],
+            [0, 2, 4, 8],
+            [16, 32, 64, 128],
+        ]
+
+        m1 = get_best_move(grid, depth=3, chance_branch_limit=6)
+        m2 = get_best_move(grid, depth=3, chance_branch_limit=6)
+        self.assertEqual(m1, m2)
 
 
 if __name__ == "__main__":
