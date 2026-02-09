@@ -5,10 +5,12 @@
 # Build outputs
 build/
 dist/
+target/
 *.spec
 !GameHub_allmods.spec
 *.exe
 *.pkg
+*.pyd
 
 # Python cache
 __pycache__/
@@ -21,6 +23,7 @@ games/.settings.json
 nuitka-crash-report.xml
 test_result.txt
 test2.txt
+games/game2048/rust_core/target/
 
 # Local benchmark artifacts (generated during tuning/profiling)
 benchmarks/game2048*.json

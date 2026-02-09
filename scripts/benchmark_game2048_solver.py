@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import random
 import sys
@@ -41,6 +42,17 @@ def _parse_weight_overrides(items: list[str]) -> dict[str, float]:
             raise ValueError(f"Invalid --weight '{item}': value must be numeric.") from exc
         overrides[key] = value
     return overrides
+
+
+def _create_solver_compat(**kwargs: Any) -> Solver2048:
+    """
+    Build Solver2048 while tolerating API differences between solver revisions.
+
+    Useful for comparing solver variants where `__init__` parameters evolved.
+    """
+    sig = inspect.signature(Solver2048.__init__)
+    accepted = {k: v for k, v in kwargs.items() if k in sig.parameters}
+    return Solver2048(**accepted)
 
 
 def _simulate_game_with_solver(
@@ -101,8 +113,9 @@ def _simulate_game_with_solver(
 
 
 def _simulate_game_in_process(payload: dict[str, Any]) -> dict[str, Any]:
-    solver = Solver2048(
+    solver = _create_solver_compat(
         depth=int(payload["depth"]),
+        max_depth_cap=int(payload["max_depth_cap"]),
         fast_mode=bool(payload["fast_mode"]),
         weights=payload["weights"],
         chance_branch_limit=int(payload["chance_branch_limit"]),
@@ -123,6 +136,7 @@ def run_benchmark(
     games: int,
     seed_start: int,
     depth: int,
+    max_depth_cap: int = 8,
     fast_mode: bool,
     chance_branch_limit: int,
     max_moves: int,
@@ -139,8 +153,9 @@ def run_benchmark(
     seeds = [seed_start + i for i in range(games)]
 
     if workers <= 1:
-        solver = Solver2048(
+        solver = _create_solver_compat(
             depth=depth,
+            max_depth_cap=max_depth_cap,
             fast_mode=fast_mode,
             weights=weights,
             chance_branch_limit=chance_branch_limit,
@@ -162,6 +177,7 @@ def run_benchmark(
             {
                 "seed": seed,
                 "depth": depth,
+                "max_depth_cap": max_depth_cap,
                 "fast_mode": fast_mode,
                 "chance_branch_limit": chance_branch_limit,
                 "max_moves": max_moves,
@@ -207,6 +223,7 @@ def run_benchmark(
         "games": games,
         "workers": workers,
         "depth": depth,
+        "max_depth_cap": int(max_depth_cap),
         "fast_mode": fast_mode,
         "chance_branch_limit": chance_branch_limit,
         "iterative_deepening": bool(iterative_deepening),
@@ -270,6 +287,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--games", type=int, default=100, help="Number of simulated games.")
     parser.add_argument("--seed-start", type=int, default=2026020800, help="Base seed for runs.")
     parser.add_argument("--depth", type=int, default=3, help="Player-ply search depth.")
+    parser.add_argument(
+        "--max-depth-cap",
+        type=int,
+        default=8,
+        help="Adaptive upper bound for effective depth inside solver.",
+    )
     parser.add_argument("--fast-mode", action="store_true", help="Enable low-latency depth caps.")
     parser.add_argument(
         "--no-iterative-deepening",
@@ -348,6 +371,7 @@ def main() -> int:
         games=max(1, args.games),
         seed_start=args.seed_start,
         depth=max(1, args.depth),
+        max_depth_cap=max(3, int(args.max_depth_cap)),
         fast_mode=bool(args.fast_mode),
         chance_branch_limit=max(1, min(16, args.chance_branch_limit)),
         max_moves=max(1, args.max_moves),

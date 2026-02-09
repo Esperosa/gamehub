@@ -81,20 +81,20 @@ _WEIGHT_INDEX = {key: idx for idx, key in enumerate(WEIGHT_KEYS)}
 
 DEFAULT_WEIGHT_VECTOR = np.array(
     [
-        4800.0,  # gradient
-        9000.0,  # corner_bonus
-        4200.0,  # corner_distance_penalty
-        2600.0,  # empty_cells
-        1900.0,  # monotonicity
-        45.0,  # smoothness
-        300.0,  # merge
-        1.4,  # near_2048
-        120.0,  # left_bias
-        95.0,  # up_bias
-        80.0,  # right_penalty
-        110.0,  # down_penalty
-        550.0,  # corner_break_penalty
-        0.02,  # move_score_scale
+        3000.0,  # gradient
+        7000.0,  # corner_bonus
+        3000.0,  # corner_distance_penalty
+        3200.0,  # empty_cells
+        2200.0,  # monotonicity
+        42.0,  # smoothness
+        360.0,  # merge
+        0.6,  # near_2048
+        0.0,  # left_bias
+        0.0,  # up_bias
+        0.0,  # right_penalty
+        0.0,  # down_penalty
+        0.0,  # corner_break_penalty
+        0.01,  # move_score_scale
         950000.0,  # terminal_penalty
     ],
     dtype=np.float64,
@@ -103,7 +103,7 @@ DEFAULT_WEIGHT_VECTOR = np.array(
 # Bitboard constants.
 _MAX_EXP = 15
 _TT_MAX_ENTRIES_DEFAULT = 120000
-_CHANCE_FULL_ENUM_EMPTY_THRESHOLD = 6
+_CHANCE_FULL_ENUM_EMPTY_THRESHOLD = 8
 _GRADIENT_CACHE_MAX = 8
 
 # Precomputed row lookup tables (16-bit row state -> moved row / gain).
@@ -481,8 +481,9 @@ def _max_exp_and_idx(board: int) -> tuple[int, int]:
     return max_exp, max_idx
 
 
-def _pack_tt_key(board: int, ply: int, node_type: int) -> int:
-    return (board << 7) | ((ply & 0x3F) << 1) | (node_type & 0x1)
+def _pack_tt_key(board: int, node_type: int) -> int:
+    # Depth is stored in TT payload and validated on lookup.
+    return (board << 1) | (node_type & 0x1)
 
 
 def log2_fast(x: int) -> float:
@@ -821,7 +822,7 @@ class _BitboardSearcher:
         weight_vector: np.ndarray,
         chance_branch_limit: int,
         row_gradient: tuple[list[float], list[float], list[float], list[float]],
-        tt: Optional[dict[int, float]] = None,
+        tt: Optional[dict[int, tuple[float, int, int] | float]] = None,
         tt_max_entries: int = _TT_MAX_ENTRIES_DEFAULT,
         deadline_s: Optional[float] = None,
     ) -> None:
@@ -833,10 +834,47 @@ class _BitboardSearcher:
         self.deadline_s = deadline_s
         self._time_exceeded = False
         self._time_probe_counter = 0
+        self._touch_clock = 0
         self.nodes_player = 0
         self.nodes_chance = 0
         self.tt_hits_player = 0
         self.tt_hits_chance = 0
+
+    def _next_touch(self) -> int:
+        self._touch_clock += 1
+        return self._touch_clock
+
+    def _tt_get(self, key: int, required_ply: int) -> Optional[float]:
+        entry = self.tt.get(key)
+        if entry is None:
+            return None
+
+        if isinstance(entry, tuple) and len(entry) >= 2:
+            value = float(entry[0])
+            depth = int(entry[1])
+            if depth < required_ply:
+                return None
+            self.tt[key] = (value, depth, self._next_touch())
+            return value
+
+        # Legacy float-only entries (without depth guard) are intentionally ignored.
+        return None
+
+    def _tt_set(self, key: int, value: float, ply: int) -> None:
+        self.tt[key] = (float(value), int(ply), self._next_touch())
+
+    def _risk_lambda(self, empty_count: int) -> float:
+        # StackOverflow high-performing implementations use pure expectimax
+        # expectation at chance nodes (no variance penalty).
+        _ = empty_count
+        return 0.0
+
+    def _prescore_move(self, board: int, direction: int, moved_board: int, gain: int) -> float:
+        # Fast pre-ordering for iterative deepening: cheap policy score + tiny static eval.
+        return (
+            gain * self.weights[W_MOVE_SCORE_SCALE]
+            + 0.08 * _evaluate_board(moved_board, self.weights, self.row_gradient)
+        )
 
     def _maybe_trim_tt(self) -> None:
         if self.tt_max_entries <= 0:
@@ -844,12 +882,15 @@ class _BitboardSearcher:
         if len(self.tt) > self.tt_max_entries:
             keep_target = max(1, int(self.tt_max_entries * 0.8))
             remove_n = max(1, len(self.tt) - keep_target)
-            keys_to_remove: list[int] = []
-            for key in self.tt:
-                keys_to_remove.append(key)
-                if len(keys_to_remove) >= remove_n:
-                    break
-            for key in keys_to_remove:
+            ranked: list[tuple[int, int]] = []
+            for key, entry in self.tt.items():
+                if isinstance(entry, tuple) and len(entry) >= 3:
+                    touch = int(entry[2])
+                else:
+                    touch = 0
+                ranked.append((touch, key))
+            ranked.sort(key=lambda item: item[0])
+            for _, key in ranked[:remove_n]:
                 self.tt.pop(key, None)
 
     def _should_stop(self) -> bool:
@@ -869,24 +910,27 @@ class _BitboardSearcher:
         if ply <= 0:
             return _evaluate_board(board, self.weights, self.row_gradient)
 
-        key = _pack_tt_key(board, ply, 1)
-        cached = self.tt.get(key)
+        key = _pack_tt_key(board, 1)
+        cached = self._tt_get(key, ply)
         if cached is not None:
             self.tt_hits_player += 1
             return cached
 
         best_score = -1e18
-        found_move = False
-
+        moves: list[tuple[float, int, int, int]] = []
         for direction in (DIR_LEFT, DIR_UP, DIR_DOWN, DIR_RIGHT):
             new_board, gain, moved = _simulate_move_board(board, direction)
             if not moved:
                 continue
+            moves.append((self._prescore_move(board, direction, new_board, gain), direction, new_board, gain))
 
-            found_move = True
+        if moves:
+            moves.sort(key=lambda item: item[0], reverse=True)
+        found_move = bool(moves)
+
+        for _, _, new_board, gain in moves:
             val = (
                 gain * self.weights[W_MOVE_SCORE_SCALE]
-                + _direction_bias_board(board, direction, self.weights)
                 + self._chance(new_board, ply - 1)
             )
             if val > best_score:
@@ -895,7 +939,7 @@ class _BitboardSearcher:
         if not found_move:
             best_score = _evaluate_board(board, self.weights, self.row_gradient) - self.weights[W_TERMINAL_PENALTY]
 
-        self.tt[key] = best_score
+        self._tt_set(key, best_score, ply)
         return best_score
 
     def _chance(self, board: int, ply: int) -> float:
@@ -903,8 +947,8 @@ class _BitboardSearcher:
         if self._should_stop():
             return _evaluate_board(board, self.weights, self.row_gradient)
 
-        key = _pack_tt_key(board, ply, 0)
-        cached = self.tt.get(key)
+        key = _pack_tt_key(board, 0)
+        cached = self._tt_get(key, ply)
         if cached is not None:
             self.tt_hits_chance += 1
             return cached
@@ -913,7 +957,7 @@ class _BitboardSearcher:
         empty_count = empty_mask.bit_count()
         if empty_count == 0:
             value = self._player(board, ply)
-            self.tt[key] = value
+            self._tt_set(key, value, ply)
             return value
 
         if empty_count <= _CHANCE_FULL_ENUM_EMPTY_THRESHOLD:
@@ -927,7 +971,10 @@ class _BitboardSearcher:
                 sample_mask = empty_mask
                 sample_count = empty_count
 
-        total = 0.0
+        weighted_sum = 0.0
+        weighted_sq_sum = 0.0
+        p2 = 0.9 / float(sample_count)
+        p4 = 0.1 / float(sample_count)
         m = sample_mask
         while m:
             lsb = m & -m
@@ -935,12 +982,17 @@ class _BitboardSearcher:
             shift = idx * 4
             b2 = board | (1 << shift)
             b4 = board | (2 << shift)
-            total += 0.9 * self._player(b2, ply)
-            total += 0.1 * self._player(b4, ply)
+            v2 = self._player(b2, ply)
+            v4 = self._player(b4, ply)
+            weighted_sum += p2 * v2 + p4 * v4
+            weighted_sq_sum += p2 * v2 * v2 + p4 * v4 * v4
             m ^= lsb
 
-        value = total / float(sample_count)
-        self.tt[key] = value
+        mean = weighted_sum
+        variance = max(0.0, weighted_sq_sum - mean * mean)
+        std = variance ** 0.5
+        value = mean - self._risk_lambda(empty_count) * std
+        self._tt_set(key, value, ply)
         return value
 
     def best_move_int(self, board: int, ply: int) -> int:
@@ -955,6 +1007,7 @@ class _BitboardSearcher:
         winning_gain = -1
 
         next_ply = max(ply - 1, 0)
+        moves: list[tuple[float, int, int, int]] = []
 
         for direction in (DIR_LEFT, DIR_UP, DIR_DOWN, DIR_RIGHT):
             new_board, gain, moved = _simulate_move_board(board, direction)
@@ -969,9 +1022,14 @@ class _BitboardSearcher:
                     winning_gain = gain
                 continue
 
+            moves.append((self._prescore_move(board, direction, new_board, gain), direction, new_board, gain))
+
+        if moves:
+            moves.sort(key=lambda item: item[0], reverse=True)
+
+        for _, direction, new_board, gain in moves:
             score = (
                 gain * self.weights[W_MOVE_SCORE_SCALE]
-                + _direction_bias_board(board, direction, self.weights)
                 + self._chance(new_board, next_ply)
             )
             if score > best_score:
@@ -1044,9 +1102,10 @@ class Solver2048:
         depth: int = 3,
         fast_mode: bool = False,
         weights: Optional[Mapping[str, float]] = None,
-        chance_branch_limit: int = 8,
+        chance_branch_limit: int = 12,
         tt_max_entries: int = _TT_MAX_ENTRIES_DEFAULT,
         iterative_deepening: bool = True,
+        max_depth_cap: int = 8,
         move_time_budget_ms: float = 24.0,
         fast_time_budget_ms: float = 10.0,
     ) -> None:
@@ -1055,10 +1114,11 @@ class Solver2048:
         self.chance_branch_limit = max(1, min(16, int(chance_branch_limit)))
         self.tt_max_entries = max(0, int(tt_max_entries))
         self.iterative_deepening = bool(iterative_deepening)
+        self.max_depth_cap = max(2, int(max_depth_cap))
         self.move_time_budget_ms = max(0.0, float(move_time_budget_ms))
         self.fast_time_budget_ms = max(0.0, float(fast_time_budget_ms))
         self._weight_vector = build_weight_vector(weights)
-        self._tt: dict[int, float] = {}
+        self._tt: dict[int, tuple[float, int, int] | float] = {}
         self._search_stats: dict[str, float] = {
             "searches": 0.0,
             "player_nodes": 0.0,
@@ -1104,17 +1164,20 @@ class Solver2048:
 
         effective_depth = self.depth
         if self.fast_mode:
-            effective_depth = min(effective_depth, 2)
+            effective_depth = min(max(2, effective_depth), min(3, self.max_depth_cap))
         else:
-            if empty_count >= 9:
+            if empty_count >= 10:
                 effective_depth = max(2, effective_depth - 1)
-            elif empty_count <= 4:
-                effective_depth = min(effective_depth + 1, 6)
+            elif empty_count <= 6:
+                effective_depth = min(effective_depth + 1, self.max_depth_cap)
+            elif empty_count <= 3:
+                effective_depth = min(effective_depth + 2, self.max_depth_cap)
 
             if max_exp >= 10 and empty_count >= 3:  # >= 1024
-                effective_depth = min(effective_depth + 1, 6)
+                effective_depth = min(effective_depth + 1, self.max_depth_cap)
             elif max_exp >= 9 and empty_count >= 5:  # >= 512
-                effective_depth = min(effective_depth + 1, 6)
+                effective_depth = min(effective_depth + 1, self.max_depth_cap)
+        effective_depth = min(max(2, effective_depth), self.max_depth_cap)
 
         row_gradient = _get_row_gradient_table(_FLAT_GRADIENT)
         budget_ms = self.fast_time_budget_ms if self.fast_mode else self.move_time_budget_ms
@@ -1182,7 +1245,7 @@ def get_best_move(
     grid,
     depth: int = 3,
     weights: Optional[Mapping[str, float]] = None,
-    chance_branch_limit: int = 8,
+    chance_branch_limit: int = 12,
 ) -> Optional[Direction]:
     solver = Solver2048(
         depth=max(1, int(depth)),

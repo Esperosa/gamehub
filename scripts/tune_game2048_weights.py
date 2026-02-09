@@ -48,6 +48,27 @@ def _physical_cpu_count() -> int:
         return max(1, _logical_cpu_count() // 2)
 
 
+def _memory_worker_cap(*, reserve_mb: int = 2048, per_worker_mb: int = 700) -> int:
+    """
+    Return safe upper bound for process workers from currently available RAM.
+
+    Returns 0 when memory metrics are unavailable, which means "no memory cap".
+    """
+    if psutil is None:
+        return 0
+    try:
+        available_mb = int(psutil.virtual_memory().available // (1024 * 1024))
+    except Exception:
+        return 0
+
+    if available_mb <= reserve_mb:
+        return 1
+
+    usable_mb = max(0, available_mb - reserve_mb)
+    cap = usable_mb // max(128, int(per_worker_mb))
+    return max(1, int(cap))
+
+
 def _effective_reserve_cores(cpu_count: int, reserve_cores: int, reserve_percent: float) -> int:
     reserve_from_percent = int(math.ceil(cpu_count * max(0.0, reserve_percent) / 100.0))
     reserve = max(int(reserve_cores), reserve_from_percent)
@@ -112,6 +133,7 @@ def _probe_parallel_workers(
             games=games,
             seed_start=seed_start,
             depth=max(1, min(int(args.depth), 2)),
+            max_depth_cap=max(3, int(args.max_depth_cap)),
             fast_mode=True,
             chance_branch_limit=max(1, min(12, int(args.chance_branch_limit))),
             max_moves=max(32, min(int(args.max_moves), 700)),
@@ -205,6 +227,8 @@ def _progress_stats_from_agents(agents: list[dict[str, Any]]) -> dict[str, float
     done_agents = 0
     weighted_score = 0.0
     weighted_win = 0.0
+    weighted_think_ms = 0.0
+    weighted_timeout_rate = 0.0
 
     for agent in agents:
         if not isinstance(agent, dict) or agent.get("status") != "done":
@@ -219,19 +243,30 @@ def _progress_stats_from_agents(agents: list[dict[str, Any]]) -> dict[str, float
         games = int(agent.get("games", 0))
         score_avg = float(summary.get("score", {}).get("avg", 0.0))
         win_rate = float(summary.get("win_rate_2048", 0.0))
+        think_ms = float(summary.get("solver_time", {}).get("avg_think_ms_per_move", 0.0))
+        search = summary.get("solver_search", {})
+        timeouts = float(search.get("timeouts", 0.0))
+        searches = max(1.0, float(search.get("total_searches", 0.0)))
+        timeout_rate = timeouts / searches
 
         done_agents += 1
         done_games += games
         weighted_score += score_avg * games
         weighted_win += win_rate * games
+        weighted_think_ms += think_ms * games
+        weighted_timeout_rate += timeout_rate * games
 
     avg_score = weighted_score / max(1, done_games)
     avg_win = weighted_win / max(1, done_games)
+    avg_think_ms = weighted_think_ms / max(1, done_games)
+    avg_timeout_rate = weighted_timeout_rate / max(1, done_games)
     return {
         "done_agents": float(done_agents),
         "done_games": float(done_games),
         "avg_score": float(avg_score),
         "avg_win_rate": float(avg_win),
+        "avg_think_ms": float(avg_think_ms),
+        "avg_timeout_rate": float(avg_timeout_rate),
     }
 
 
@@ -316,10 +351,11 @@ def _score_summary(summary: dict[str, Any]) -> float:
     2) Stable score distribution and higher board ceilings
     3) Keep average think-time practical
     """
-    win_rate = float(summary["win_rate_2048"])
-    score_avg = float(summary["score"]["avg"])
-    score_p90 = float(summary["score"]["p90"])
-    think_ms = float(summary["solver_time"]["avg_think_ms_per_move"])
+    games = max(1.0, float(summary.get("games", 0)))
+    win_rate = float(summary.get("win_rate_2048", 0.0))
+    score_avg = float(summary.get("score", {}).get("avg", 0.0))
+    score_p90 = float(summary.get("score", {}).get("p90", 0.0))
+    think_ms = float(summary.get("solver_time", {}).get("avg_think_ms_per_move", 0.0))
 
     best_tile_dist = summary.get("best_tile_distribution", {})
     total_tile = 0.0
@@ -329,24 +365,48 @@ def _score_summary(summary: dict[str, Any]) -> float:
         total_count += float(value)
     avg_best_tile = total_tile / max(total_count, 1.0)
 
-    think_penalty = max(0.0, think_ms - 45.0) * 180.0
+    think_penalty = max(0.0, think_ms - 70.0) * 90.0
     search = summary.get("solver_search", {})
+    terminations = summary.get("termination_distribution", {})
     nodes_per_s = float(search.get("nodes_per_second", 0.0))
     tt_hit_rate = float(search.get("tt_hit_rate_overall", 0.0))
     timeouts = float(search.get("timeouts", 0.0))
-    throughput_bonus = min(nodes_per_s, 2_500_000.0) * 0.015
-    cache_bonus = tt_hit_rate * 6500.0
-    timeout_penalty = timeouts * 1500.0
+    searches = max(1.0, float(search.get("total_searches", 0.0)))
+    timeout_rate = timeouts / searches
+    time_cap_rate = float(terminations.get("time_cap", 0.0)) / games
+    move_cap_rate = float(terminations.get("move_cap", 0.0)) / games
+
+    reach_1024_rate = 0.0
+    reach_4096_rate = 0.0
+    for key, value in best_tile_dist.items():
+        tile = int(key)
+        cnt = float(value)
+        if tile >= 1024:
+            reach_1024_rate += cnt
+        if tile >= 4096:
+            reach_4096_rate += cnt
+    reach_1024_rate /= games
+    reach_4096_rate /= games
+
+    throughput_bonus = min(nodes_per_s, 4_000_000.0) * 0.004
+    cache_bonus = tt_hit_rate * 3000.0
+    # Solver "timeouts" mean move-budget exhaustion, which is expected with
+    # iterative deepening. Penalize only pathological cases.
+    timeout_penalty = max(0.0, timeout_rate - 0.995) * 40000.0
+    cap_penalty = time_cap_rate * 260000.0 + move_cap_rate * 160000.0
 
     return (
-        win_rate * 320000.0
-        + score_avg * 5.5
-        + score_p90 * 1.8
-        + avg_best_tile * 20.0
+        win_rate * 2200000.0
+        + reach_1024_rate * 320000.0
+        + reach_4096_rate * 420000.0
+        + score_avg * 2.8
+        + score_p90 * 0.9
+        + avg_best_tile * 45.0
         + throughput_bonus
         + cache_bonus
         - think_penalty
         - timeout_penalty
+        - cap_penalty
     )
 
 
@@ -611,6 +671,7 @@ def _snapshot_config(args: argparse.Namespace, parallel_probe: dict[str, Any] | 
         "move_time_budget_ms": float(args.move_time_budget_ms),
         "fast_time_budget_ms": float(args.fast_time_budget_ms),
         "depth": int(args.depth),
+        "max_depth_cap": int(args.max_depth_cap),
         "chance_branch_limit": int(args.chance_branch_limit),
         "max_moves": int(args.max_moves),
         "max_seconds": float(args.max_seconds),
@@ -651,6 +712,10 @@ def _resolve_parallelism(args: argparse.Namespace) -> dict[str, Any] | None:
     if desired_parallel > 0:
         target_workers = min(target_workers, desired_parallel)
 
+    memory_cap = _memory_worker_cap()
+    if memory_cap > 0:
+        target_workers = min(target_workers, memory_cap)
+
     max_agent_workers = int(args.max_agent_workers)
     if max_agent_workers > 0:
         target_workers = min(target_workers, max_agent_workers)
@@ -687,6 +752,7 @@ def _resolve_parallelism(args: argparse.Namespace) -> dict[str, Any] | None:
         "cpu_count_logical": int(cpu_count),
         "cpu_count_physical": int(_physical_cpu_count()),
         "cpu_reserve_cores_effective": int(reserve),
+        "memory_worker_cap": int(memory_cap),
         "cpu_reserve_percent": float(args.cpu_reserve_percent),
         "target_cpu_util": float(target_util),
         "usable_worker_budget": int(usable),
@@ -884,6 +950,7 @@ def _evaluate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         games=int(payload["games"]),
         seed_start=int(payload["seed_start"]),
         depth=int(payload["depth"]),
+        max_depth_cap=max(3, int(payload["max_depth_cap"])),
         fast_mode=False,
         chance_branch_limit=max(1, min(16, int(payload["chance_branch_limit"]))),
         max_moves=max(1, int(payload["max_moves"])),
@@ -942,6 +1009,7 @@ def _evaluate_pending_agents(
             "games": int(agent["games"]),
             "weights": dict(agent["weights"]),
             "depth": int(args.depth),
+            "max_depth_cap": int(args.max_depth_cap),
             "chance_branch_limit": int(args.chance_branch_limit),
             "max_moves": int(args.max_moves),
             "max_seconds": float(args.max_seconds),
@@ -994,7 +1062,9 @@ def _evaluate_pending_agents(
                 f"[progress] cycle={cycle_index} cpu=n/a workers=1/1 "
                 f"done={done_games}/{total_planned} ({pct:.1f}%) "
                 f"avg_score={progress['avg_score']:.1f} "
-                f"win_rate={progress['avg_win_rate']:.2%}"
+                f"win_rate={progress['avg_win_rate']:.2%} "
+                f"avg_think_ms={progress['avg_think_ms']:.2f} "
+                f"search_budget_hit_rate={progress['avg_timeout_rate']:.2%}"
             )
         return
 
@@ -1033,7 +1103,9 @@ def _evaluate_pending_agents(
                         f"workers={agent_workers}/{agent_workers} "
                         f"done={done_games}/{total_planned} ({pct:.1f}%) "
                         f"avg_score={progress['avg_score']:.1f} "
-                        f"win_rate={progress['avg_win_rate']:.2%}"
+                        f"win_rate={progress['avg_win_rate']:.2%} "
+                        f"avg_think_ms={progress['avg_think_ms']:.2f} "
+                        f"search_budget_hit_rate={progress['avg_timeout_rate']:.2%}"
                     )
             except KeyboardInterrupt:
                 for future in futures:
@@ -1156,7 +1228,9 @@ def _evaluate_pending_agents(
                         f"running_games={running_games} queued_games={queued_games} "
                         f"done={done_games}/{total_planned} ({pct:.1f}%) "
                         f"avg_score={progress['avg_score']:.1f} "
-                        f"win_rate={progress['avg_win_rate']:.2%}"
+                        f"win_rate={progress['avg_win_rate']:.2%} "
+                        f"avg_think_ms={progress['avg_think_ms']:.2f} "
+                        f"search_budget_hit_rate={progress['avg_timeout_rate']:.2%}"
                     )
                     last_report_ts = now
         except KeyboardInterrupt:
@@ -1200,7 +1274,9 @@ def _evaluate_pending_agents(
                 f"[progress] cycle={cycle_index} cpu=n/a fallback=sequential "
                 f"done={done_games}/{total_planned} ({pct:.1f}%) "
                 f"avg_score={progress['avg_score']:.1f} "
-                f"win_rate={progress['avg_win_rate']:.2%}"
+                f"win_rate={progress['avg_win_rate']:.2%} "
+                f"avg_think_ms={progress['avg_think_ms']:.2f} "
+                f"search_budget_hit_rate={progress['avg_timeout_rate']:.2%}"
             )
 
 
@@ -1236,6 +1312,7 @@ def _run_validation(
         games=max(1, int(args.final_validation_games)),
         seed_start=seed,
         depth=max(1, int(args.depth)),
+        max_depth_cap=max(3, int(args.max_depth_cap)),
         fast_mode=False,
         chance_branch_limit=max(1, min(16, int(args.chance_branch_limit))),
         max_moves=max(1, int(args.max_moves)),
@@ -1454,20 +1531,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--move-time-budget-ms",
         type=float,
-        default=24.0,
+        default=30.0,
         help="Per-move search budget in normal mode.",
     )
     parser.add_argument(
         "--fast-time-budget-ms",
         type=float,
-        default=10.0,
+        default=14.0,
         help="Per-move search budget in fast mode.",
     )
 
-    parser.add_argument("--depth", type=int, default=3, help="Player-ply depth.")
+    parser.add_argument("--depth", type=int, default=4, help="Player-ply depth.")
+    parser.add_argument(
+        "--max-depth-cap",
+        type=int,
+        default=8,
+        help="Adaptive upper bound for effective depth inside solver.",
+    )
     parser.add_argument("--chance-branch-limit", type=int, default=8, help="Chance-node branch limit.")
-    parser.add_argument("--max-moves", type=int, default=2500, help="Per-game move cap.")
-    parser.add_argument("--max-seconds", type=float, default=20.0, help="Per-game time cap.")
+    parser.add_argument("--max-moves", type=int, default=4000, help="Per-game move cap.")
+    parser.add_argument("--max-seconds", type=float, default=60.0, help="Per-game time cap.")
     parser.add_argument("--seed-start", type=int, default=2026030100, help="Seed base for reproducibility.")
 
     parser.add_argument("--sigma", type=float, default=0.14, help="Mutation strength in log-space.")
@@ -1508,6 +1591,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    args.depth = max(1, int(args.depth))
+    args.max_depth_cap = max(args.depth, int(args.max_depth_cap))
+    args.chance_branch_limit = max(1, min(16, int(args.chance_branch_limit)))
+    args.max_moves = max(512, int(args.max_moves))
+    args.max_seconds = max(8.0, float(args.max_seconds))
+    args.move_time_budget_ms = max(2.0, float(args.move_time_budget_ms))
+    args.fast_time_budget_ms = max(1.0, float(args.fast_time_budget_ms))
     defaults = get_default_weights()
 
     if args.list_weights:
@@ -1566,7 +1656,8 @@ def main() -> int:
             f"auto_parallel=1 auto_probe={1 if bool(args.auto_probe) else 0} "
             f"agent_workers={args.agent_workers} benchmark_workers={args.benchmark_workers} "
             f"reserve={parallel_probe.get('cpu_reserve_cores_effective', '?')} "
-            f"of {parallel_probe.get('cpu_count_logical', '?')} logical CPUs"
+            f"of {parallel_probe.get('cpu_count_logical', '?')} logical CPUs "
+            f"memory_worker_cap={parallel_probe.get('memory_worker_cap', '?')}"
         )
         probe = parallel_probe.get("probe")
         if isinstance(probe, dict):
