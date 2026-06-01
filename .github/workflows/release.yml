@@ -77,13 +77,13 @@ jobs:
     needs: [build-windows, build-linux]
     steps:
       - name: Download Windows Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-release
           path: artifacts/windows
 
       - name: Download Linux Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-release
           path: artifacts/linux
