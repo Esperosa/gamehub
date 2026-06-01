@@ -32,7 +32,7 @@ jobs:
           ./scripts/build_windows.ps1 -Version "${{ github.ref_name }}"
 
       - name: Upload Windows Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-release
           path: |
@@ -63,7 +63,7 @@ jobs:
           ./scripts/build_linux.sh "${{ github.ref_name }}"
 
       - name: Upload Linux Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-release
           path: |
