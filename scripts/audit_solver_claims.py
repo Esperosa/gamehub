@@ -82,7 +82,7 @@ def audit_sudoku(samples_per_size: int, base_seed: int) -> Dict[str, Any]:
 
 
 def audit_kenken(samples_per_size: int, base_seed: int) -> Dict[str, Any]:
-    """Measure observed uniqueness ratio for Calcudoku-based KenKen generation."""
+    """Measure observed uniqueness ratio for KenKen generation."""
     rows: List[Dict[str, Any]] = []
     for size in (4, 6, 8):
         config = KenKenConfig.from_size(size)

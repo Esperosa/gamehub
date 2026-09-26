@@ -25,6 +25,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
+- KenKen generator no longer uses the vendored third-party `calcudoku` package
+  (no license was published for it); puzzles are now built by the project's own
+  Latin-square + merge-partition cage generator in `games/kenken/engine.py`.
 - Corrected non-accurate uniqueness claims in:
   - `games/kenken/engine.py`
   - `games/nonogram/engine.py`

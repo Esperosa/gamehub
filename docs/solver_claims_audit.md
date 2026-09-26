@@ -46,7 +46,7 @@ Interpretace:
 | 8 | 20 | 1 | 8 | 11 |
 
 Interpretace:
-- Calcudoku generátor negarantuje unikátní řešení.
+- Generátor KenKen negarantuje unikátní řešení.
 - Dřívější obecné tvrzení "exactly one solution" bylo nepravdivé a bylo odstraněno.
 
 ### Nonogram

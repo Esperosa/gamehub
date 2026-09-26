@@ -101,7 +101,7 @@ Detailní rozpad po hrách a knihovnách: `docs/author_vs_libraries.md`
 |---|---|---|
 | Sudoku | Generátor přijme odebrání čísla jen pokud nenašel alternativní řešení k referenčnímu řešení. | `games/sudoku/engine.py`, audit skript `scripts/audit_solver_claims.py` |
 | Slitherlink | Generátor vrací puzzle jen pokud SAT uniqueness check vrátí právě 1 řešení. | `games/slitherlink/engine.py` |
-| KenKen | Calcudoku generátor negarantuje unikátní řešení každého puzzle. | `games/kenken/engine.py`, audit report `docs/solver_claims_audit.md` |
+| KenKen | Generátor negarantuje unikátní řešení každého puzzle. | `games/kenken/engine.py`, audit report `docs/solver_claims_audit.md` |
 | Nonogram | Generované puzzle má validní referenční řešení, unikátnost není tvrdě garantovaná. | `games/nonogram/engine.py`, audit report `docs/solver_claims_audit.md` |
 
 ## Podporované Platformy
@@ -310,7 +310,7 @@ Níže je praktický přehled pravidel, ovládání a interní logiky (AI/solver
   - Dávkový černobílý tisk/PDF s layoutem na A4.
 - Agent/AI:
   - Constraint solver s MRV heuristikou + propagace omezení.
-  - Solver umí detekovat více řešení; aktuální Calcudoku generátor neprovádí tvrdou uniqueness smyčku.
+  - Solver umí detekovat více řešení; aktuální generátor neprovádí tvrdou uniqueness smyčku.
   - Výpočty jsou optimalizované (Numba fallback na čistý Python).
 
 ### Mastermind

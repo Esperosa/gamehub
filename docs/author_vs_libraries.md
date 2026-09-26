@@ -26,7 +26,7 @@ Poznámka: graf je orientační (není to LOC metrika), cílem je ukázat hranic
 | Othello | Minimax + alpha-beta pruning + hodnoticí heuristiky | Bez AI frameworku, čistý Python |
 | Piškvorky | Heuristiky + minimax/alpha-beta + transposition table | Volitelně `numba` fallback pattern, jinak Python |
 | Sudoku | CSP/backtracking s MRV + bitmask optimalizace; uniqueness přes alternative-solution probe | Bez ML; pouze Python |
-| KenKen | CSP solver: kandidáti klecí, propagace, branching | `numpy`/`numba` pro výkon; generátor používá vendored `calcudoku` |
+| KenKen | CSP solver: kandidáti klecí, propagace, branching | `numpy`/`numba` pro výkon; generátor (latinský čtverec + slučování klecí) je vlastní |
 | Nonogram | Line solver + propagace + branching při nejednoznačnosti | Bez externího AI engine |
 | Mastermind | Minimax-like výběr tahu, redukce kandidátů | Bez externího AI engine |
 | Slitherlink | Constraint logika + SAT modelování + validace smyčky | `python-sat` řeší SAT backend nad CNF modelem z projektu |

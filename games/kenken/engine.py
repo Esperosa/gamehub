@@ -10,7 +10,7 @@ Design principles:
 - Bitset-based candidate tracking for O(1) operations
 - Numba JIT compilation for native-speed solving
 
-Note: current Calcudoku-based generation does not hard-guarantee uniqueness.
+Note: the fast generator does not hard-guarantee uniqueness.
 Uniqueness can be evaluated by `KenKenSolver.count_solutions(...)`.
 """
 from __future__ import annotations
@@ -1499,9 +1499,12 @@ def _generate_attempt(args: Tuple) -> Optional[Tuple[List, int]]:
         
         cages.append(Cage(cells=cells, target=tgt, operation=op))
     
-    # Count solutions with timeout
+    # Count solutions with timeout (count_timeout <= 0 skips the check)
+    count_timeout = params.get('count_timeout', 0.3)
+    if count_timeout <= 0:
+        return (cages, -1)
     solver = KenKenSolver(config, cages)
-    sol_count = solver.count_solutions([0] * (n * n), limit=2, timeout=0.3)
+    sol_count = solver.count_solutions([0] * (n * n), limit=2, timeout=count_timeout)
     
     if sol_count == 1:
         return (cages, 1)
@@ -1509,138 +1512,62 @@ def _generate_attempt(args: Tuple) -> Optional[Tuple[List, int]]:
     return (cages, sol_count if sol_count >= 0 else 99)
 
 
+def _random_latin_square(n: int, rng: random.Random) -> List[int]:
+    """Random Latin square: cyclic construction + row/column/symbol permutations."""
+    rows = list(range(n))
+    cols = list(range(n))
+    symbols = list(range(1, n + 1))
+    rng.shuffle(rows)
+    rng.shuffle(cols)
+    rng.shuffle(symbols)
+    return [symbols[(rows[r] + cols[c]) % n] for r in range(n) for c in range(n)]
+
+
 class KenKenGenerator:
-    """Generate KenKen puzzles using pycalcudoku library.
-    
-    Uses dannyzed/pycalcudoku for puzzle generation.
-    Operations: + - * / (all supported)
+    """Generate KenKen puzzles with merge-partition caging.
+
+    Solution: random Latin square (`_random_latin_square`).
+    Cages: union-find merging of adjacent cells (`_generate_attempt`).
+    Operations: + - * / (- and / only for 2-cell cages).
 
     This path prioritizes speed and cage quality. It does not run a strict
     uniqueness loop before returning the puzzle.
     """
-    
-    # Map calcudoku operation names to our symbols
-    OP_MAP = {
-        'add': '+',
-        'subtract': '-',
-        'multiply': '*',
-        'divide': '/',
-        'none': '',  # single cell
-    }
-    # Use only classic KenKen operations. Local calcudoku also supports "xor",
-    # but this project does not implement xor rules in UI/solver.
-    OP_WEIGHTS = {
-        'add': 1.0,
-        'subtract': 1.0,
-        'multiply': 1.0,
-        'divide': 1.0,
-        'none': 1.0,
-        'xor': 0.0,
-    }
-    MAX_TARGET_DIGITS = 4
-    MAX_TARGET_VALUE = 10 ** MAX_TARGET_DIGITS - 1
-    
+
+    MAX_CAGE_SIZE = 4
+    SINGLES_RATIO = 0.05
+    OP_WEIGHTS = {'+': 4, '*': 4, '-': 4, '/': 3}
+
     def __init__(self, config: KenKenConfig):
         self.config = config
         self.size = config.size
 
-    @staticmethod
-    def _num_digits(value: int) -> int:
-        return len(str(abs(int(value))))
+    def _params(self) -> Dict:
+        n = self.size
+        return {
+            'cages': max(2, round(n * n / 3)),
+            'max_size': self.MAX_CAGE_SIZE,
+            'singles': self.SINGLES_RATIO,
+            'ops': dict(self.OP_WEIGHTS),
+            'count_timeout': 0.0,
+        }
 
-    def _fallback_constraint(self, values: List[int]) -> Tuple[str, int]:
-        """Return a guaranteed-valid KenKen constraint with a short target."""
-        if len(values) == 1:
-            return ('', int(values[0]))
-
-        # For 2-cell cages prefer classic binary ops when possible.
-        if len(values) == 2:
-            a, b = values
-            hi, lo = (a, b) if a >= b else (b, a)
-
-            if lo != 0 and hi % lo == 0:
-                div_target = hi // lo
-                if div_target <= self.MAX_TARGET_VALUE:
-                    return ('/', int(div_target))
-
-            diff_target = abs(a - b)
-            if diff_target <= self.MAX_TARGET_VALUE:
-                return ('-', int(diff_target))
-
-        # Sum is always safe for this game size range (3-9).
-        return ('+', int(sum(values)))
-    
     def generate(self, seed: Optional[int] = None) -> KenKenState:
-        """Generate puzzle using pycalcudoku.
-        
+        """Generate a puzzle.
+
         Args:
             seed: Random seed for reproducibility
-        
+
         Returns:
             KenKenState with puzzle ready to solve
         """
-        if seed is not None:
-            np.random.seed(seed)
-        else:
+        if seed is None:
             seed = random.randint(0, 2**31 - 1)
-            np.random.seed(seed)
-        
-        # Import local calcudoku
-        try:
-            from .calcudoku.game import Calcudoku
-        except ImportError:
-            # Fallback for standalone import - need to load graph.py first
-            import importlib.util
-            import os
-            import sys
-            
-            calcudoku_dir = os.path.join(os.path.dirname(__file__), "calcudoku")
-            
-            # Load graph module first (game.py depends on it)
-            graph_path = os.path.join(calcudoku_dir, "graph.py")
-            graph_spec = importlib.util.spec_from_file_location("calcudoku.graph", graph_path)
-            graph_module = importlib.util.module_from_spec(graph_spec)
-            sys.modules["calcudoku.graph"] = graph_module
-            graph_spec.loader.exec_module(graph_module)
-            
-            # Now load game module
-            game_path = os.path.join(calcudoku_dir, "game.py")
-            game_spec = importlib.util.spec_from_file_location("calcudoku.game", game_path)
-            game_module = importlib.util.module_from_spec(game_spec)
-            sys.modules["calcudoku.game"] = game_module
-            game_spec.loader.exec_module(game_module)
-            
-            Calcudoku = game_module.Calcudoku
-        
-        # Generate puzzle (restricted to classic KenKen ops)
-        game = Calcudoku.generate(self.size, operation_p=self.OP_WEIGHTS)
-        
-        # Convert to our format
+
         n = self.size
-        solution = list(game.board)  # Already flattened 1D array
-        
-        cages = []
-        for partition, (op_name, target) in zip(game.partitions, game.operations):
-            # Convert flat indices to (row, col) tuples
-            cells = [(idx // n, idx % n) for idx in partition]
-            values = [solution[r * n + c] for r, c in cells]
-            operation = self.OP_MAP.get(op_name)
-            target_int = int(target)
+        solution = _random_latin_square(n, random.Random(seed))
+        cages, _ = _generate_attempt((n, None, seed, 0, solution, self._params()))
 
-            # Hard guarantee: keep only supported operations and <=4-digit targets.
-            if operation is None or self._num_digits(target_int) > self.MAX_TARGET_DIGITS:
-                operation, target_int = self._fallback_constraint(values)
-
-            # Extra safety: ensure cage label always matches the real solution values.
-            if not Cage(cells=cells, target=target_int, operation=operation).check(values):
-                operation, target_int = self._fallback_constraint(values)
-
-            cages.append(Cage(
-                cells=cells,
-                target=target_int,
-                operation=operation
-            ))
-        
         return KenKenState(
             config=self.config,
             board=[0] * (n * n),
