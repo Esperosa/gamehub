@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Desktop aplikace v Pythonu (PySide6), která sdružuje logické hry, AI moduly a tisk/PDF exporty do jednoho launcheru.
+  Desktopová aplikace v Pythonu a PySide6: devět logických her, vlastní herní algoritmy a solvery, tisk a PDF export.
 </p>
 
 <p align="center">
@@ -20,6 +20,12 @@
 <p align="center">
   <img src="docs/media/repo_hero.png" alt="GameHub hero" width="100%" />
 </p>
+
+## Projekt v kostce
+
+GameHub jsem postavil jako rozšiřitelný desktopový produkt: hry se načítají z manifestů a každá odděluje pravidla, solver a uživatelské rozhraní. Díky tomu lze přidat novou hru bez přepisování launcheru. Jádro AI/solverů je implementované v Pythonu (například expectimax, minimax s alpha-beta a CSP/backtracking); knihovny řeší UI a vybrané podpůrné výpočty.
+
+**Ověření:** [testy](tests/), [architektura](ARCHITECTURE.md), [vydané balíčky pro Windows a Linux](https://github.com/Esperosa/gamehub/releases). Podrobnosti, omezení jednotlivých solverů a návody jsou níže.
 
 ## Ukázky Hraní
 
@@ -55,10 +61,6 @@ GameHub je Python-first: rozhodovací AI/solver logika je implementovaná v proj
 | Puzzle solvery (Sudoku, KenKen, Nonogram) | CSP/backtracking, MRV, propagace, branching | `numba`/`numpy` pouze pro výkon dat/výpočtů |
 | Slitherlink uniqueness | CNF model + validace smyčky + integrace | `python-sat` řeší samotné SAT prohledávání |
 | Desktop UI | herní widgety, plugin lifecycle, stav hry | `PySide6` (okna, event loop, rendering) |
-
-Textový graf odpovědností (orientační):
-- Autorská logika her/AI/solverů: `███████████████░░░░░` `~75%`
-- Framework/infra/akcelerace: `█████░░░░░░░░░░░░░░░` `~25%`
 
 Detailní rozpad po hrách a knihovnách: `docs/author_vs_libraries.md`
 
